@@ -1,0 +1,15 @@
+version: "3.7"
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    platform: linux/x86_64
+    environment:
+      POSTGRES_DB: "db"
+      POSTGRES_USER: "user"
+      POSTGRES_PASSWORD: "password"
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescale-db2:/var/lib/postgresql/data
+volumes:
+  timescale-db2:
