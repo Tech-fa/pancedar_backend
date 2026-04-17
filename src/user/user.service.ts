@@ -14,17 +14,16 @@ import { EmailType } from "../common/dto";
 import { QueuePublisher } from "../queue/queue.publisher";
 import { Otp } from "./otp.entity";
 import { RequestContextService } from "../history/request-context.service";
-import { UserCredential } from "./userCredendtial.entity";
 import { UserIncomingEmail } from "./user-incoming-emails.entity";
 import { TeamService } from "../team/team.service";
 import { UserRequest } from "../permissions/dto";
+import { Connector } from "../connector/connector.entity";
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    @InjectRepository(UserCredential)
-    private readonly credentialRepository: Repository<UserCredential>,
+
     @InjectRepository(UserIncomingEmail)
     private readonly incomingEmailRepository: Repository<UserIncomingEmail>,
     private readonly queuePublisher: QueuePublisher,
@@ -42,19 +41,6 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException("User not found");
     return user;
-  }
-
-  async saveCredential(credential: UserCredential) {
-    return await this.credentialRepository.save(credential);
-  }
-  async findCredentialByInboxEmail(
-    inboxEmail: string,
-    relations: string[] = [],
-  ) {
-    return await this.credentialRepository.findOne({
-      where: { inboxEmail },
-      relations,
-    });
   }
 
   async findAllBySearch(
@@ -234,24 +220,6 @@ export class UsersService {
     });
   }
 
-  async findCredentialById(credentialId: string, relations: string[] = []) {
-    return await this.credentialRepository.findOne({
-      where: { id: credentialId },
-      relations,
-    });
-  }
-  async deleteCredentialAndEmails(credentialId: string, userId: string) {
-    const credential = await this.findCredentialById(credentialId, ["user"]);
-    if (!credential || credential.user.id !== userId) {
-      throw new NotFoundException("Credential not found");
-    }
-    await this.incomingEmailRepository.delete({
-      credential: { id: credentialId },
-    });
-    await this.credentialRepository.delete(credentialId);
-    return { id: credentialId };
-  }
-
   public async updateUser(
     userId: string,
     updated: {
@@ -386,7 +354,7 @@ export class UsersService {
   }
 
   async saveIncomingEmail(data: {
-    credential: UserCredential;
+    connector: Connector;
     from: string;
     subject: string;
     htmlText: string;
@@ -397,7 +365,7 @@ export class UsersService {
   }) {
     const incomingEmail = new UserIncomingEmail();
     incomingEmail.id = uuidv4();
-    incomingEmail.credential = data.credential;
+    incomingEmail.connector = data.connector;
     incomingEmail.from = data.from;
     incomingEmail.subject = data.subject;
     incomingEmail.htmlText = data.htmlText;
@@ -422,12 +390,12 @@ export class UsersService {
     });
   }
 
-  async findIncomingEmailsByCredentialId(
-    credentialId: string,
+  async findIncomingEmailsByConnectorId(
+    connectorId: string,
     relations: string[] = [],
   ) {
     return await this.incomingEmailRepository.find({
-      where: { credential: { id: credentialId } },
+      where: { connectorId },
       relations,
       order: { creationDate: "DESC" },
     });

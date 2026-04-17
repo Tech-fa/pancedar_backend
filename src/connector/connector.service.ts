@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { In, Repository } from "typeorm";
 import { Connector } from "./connector.entity";
 import {
   CreateConnectorDto,
@@ -17,8 +17,7 @@ import {
   ConnectorStatus,
 } from "./dto";
 import { decrypt, encrypt } from "../util/helper-util";
-import { injectableModules, injectableMap } from "./injectables-config";
-import { UserRequest } from "src/permissions/dto";
+import { UserRequest } from "../permissions/dto";
 import {
   ConnectorTypeConfig,
   connectorTypesConfig,
@@ -31,23 +30,86 @@ export class ConnectorService {
     private readonly connectorRepo: Repository<Connector>,
   ) {}
 
-  // ── ConnectorType (read-only, seeded from config) ──
+  findTypeByName(name: string): ConnectorTypeConfig | undefined {
+    return connectorTypesConfig.find((t) => t.name === name);
+  }
 
-  async findAllTypes(): Promise<ConnectorTypeConfig[]> {
-    return connectorTypesConfig;
+  async addConnection(
+    user: UserRequest,
+    connectorTypeName: string,
+    name?: string,
+  ): Promise<Connector> {
+    const typeConfig = this.findTypeByName(connectorTypeName);
+    if (!typeConfig) {
+      throw new BadRequestException(
+        `Connector type "${connectorTypeName}" not found`,
+      );
+    }
+
+    const now = Date.now();
+
+    const connector = this.connectorRepo.create({
+      name: typeConfig.name,
+      connectorTypeId: connectorTypeName,
+      primaryIdentifier: `${connectorTypeName}-${now}`,
+      credentials: {},
+      status: typeConfig.oauthUrl
+        ? ConnectorStatus.PENDING
+        : ConnectorStatus.ACTIVE,
+      clientId: user.clientId,
+      teamId: user.teamId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return this.connectorRepo.save(connector);
+  }
+
+  async reconnect(id: string): Promise<{ oauthUrl: string }> {
+    const connector = await this.findOneById(id);
+    if (!connector) {
+      throw new NotFoundException("Connector not found");
+    }
+    if (connector.status !== ConnectorStatus.PENDING) {
+      throw new BadRequestException("Connector is not pending");
+    }
+    await this.connectorRepo.save(connector);
+    return {
+      oauthUrl: this.findTypeByName(connector.connectorTypeId).oauthUrl,
+    };
+  }
+
+  async findOneByPrimaryIdentifier(
+    primaryIdentifier: string,
+  ): Promise<Connector> {
+    return this.connectorRepo.findOne({
+      where: { primaryIdentifier },
+    });
   }
 
   async findAll(user: UserRequest): Promise<Connector[]> {
     return this.connectorRepo.find({
       where: { clientId: user.clientId, teamId: user.teamId },
-      relations: ["connectorType", "connectorType.actions", "actionInstances"],
       order: { createdAt: "DESC" },
       select: {
         id: true,
         name: true,
         status: true,
-        displays: true,
+        primaryIdentifier: true,
+        credentials: true,
         connectorTypeId: true,
+      },
+    });
+  }
+
+  async findConnectors(
+    user: UserRequest,
+    names: string[],
+  ): Promise<Connector[]> {
+    return await this.connectorRepo.find({
+      where: {
+        clientId: user.clientId,
+        teamId: user.teamId,
+        name: In(names),
       },
     });
   }
@@ -69,7 +131,6 @@ export class ConnectorService {
   async findOneById(id: string): Promise<Connector> {
     const connector = await this.connectorRepo.findOne({
       where: { id },
-      relations: ["connectorType", "connectorType.actions"],
     });
     if (!connector) {
       throw new NotFoundException("Connector not found");
@@ -96,13 +157,15 @@ export class ConnectorService {
     if (Object.keys(connectorTypesConfig).includes(dto.connectorTypeId)) {
       throw new BadRequestException("Connector type not found");
     }
+    if (!connectorTypesConfig.find((t) => t.name === dto.connectorTypeId)) {
+      throw new BadRequestException("Connector type not found");
+    }
+    console.log(dto);
     const now = Date.now();
     const connector = this.connectorRepo.create({
       name: dto.name.trim(),
       connectorTypeId: dto.connectorTypeId,
-      credentials: dto.credentials
-        ? await encrypt(JSON.stringify(dto.credentials))
-        : null,
+      credentials: {},
       status: dto.status ?? ConnectorStatus.ACTIVE,
       clientId: user.clientId,
       teamId: user.teamId,
@@ -126,10 +189,7 @@ export class ConnectorService {
     }
 
     if (dto.name?.trim()) connector.name = dto.name.trim();
-    if (dto.credentials !== undefined)
-      connector.credentials = dto.credentials
-        ? await encrypt(JSON.stringify(dto.credentials))
-        : null;
+
     if (dto.status !== undefined) connector.status = dto.status;
 
     connector.updatedAt = Date.now();

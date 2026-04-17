@@ -6,8 +6,7 @@ import {
   ManyToOne,
   PrimaryColumn,
 } from "typeorm";
-import { UserCredential } from "./userCredendtial.entity";
-
+import { Connector } from "../connector/connector.entity";
 export enum EmailProcessingStatus {
   PENDING = "pending",
   PROCESSING = "processing",
@@ -20,9 +19,12 @@ export class UserIncomingEmail {
   @PrimaryColumn()
   id: string;
 
-  @ManyToOne(() => UserCredential, { onDelete: "CASCADE" })
-  @JoinColumn({ name: "credential_id" })
-  credential: UserCredential;
+  @ManyToOne(() => Connector, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "connector_id" })
+  connector: Connector;
+
+  @Column({ name: "connector_id", type: "varchar", length: 255 })
+  connectorId: string;
 
   @Column({ name: "from", type: "varchar", length: 255 })
   from: string;

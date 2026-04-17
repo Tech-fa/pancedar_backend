@@ -10,9 +10,10 @@ import {
 } from "typeorm";
 import { ClientBaseEntity } from "../client/client-base";
 import { bigintTransformer } from "../util/bigint-transformer";
+import { Events } from "../queue/queue-constants";
+import { WorkflowStepDto } from "./dto";
 
 @Entity("workflows")
-@Index(["clientId", "parentId"])
 export class Workflow extends ClientBaseEntity {
   constructor(props: Partial<Workflow>) {
     super();
@@ -27,6 +28,15 @@ export class Workflow extends ClientBaseEntity {
 
   @Column({ name: "description", type: "text", nullable: true })
   description: string | null;
+
+  @Column({ name: "trigger_queue", type: "varchar", length: 255 })
+  triggerQueue: Events;
+
+  @Column({ name: "steps", type: "json", nullable: true })
+  steps: WorkflowStepDto[];
+
+  @Column({ name: "context", type: "json", nullable: true })
+  context: Record<string, any>;
 
   @Column({
     name: "created_at",

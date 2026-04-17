@@ -17,7 +17,7 @@ import { hashPassword } from "../util/helper-util";
 import { UserPermissionGroup } from "../permissions/user-permission-group.entity";
 import { TeamService } from "../team/team.service";
 import { Team, TeamMember } from "../team/team.entity";
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 @Injectable()
 export class AuthService {
   constructor(
@@ -43,13 +43,10 @@ export class AuthService {
       userId: user.id,
       clientId: user.client.id,
     });
-    const teamMember = await this.teamService.getTeamMember(
-      user.id,
-      user.teamId,
-    );
+
     return {
       access_token: this.getToken(user, user.teamId),
-      ...(await this.getUserDetails(user, teamMember.isCompliant)),
+      ...(await this.getUserDetails(user)),
     };
   }
 
@@ -63,13 +60,10 @@ export class AuthService {
     if (teamId && !teamIds.includes(teamId)) {
       throw new BadRequestException("Invalid team");
     }
-    const teamMember = await this.teamService.getTeamMember(
-      user.id,
-      teamId || user.teamId,
-    );
+
     return {
       access_token: this.getToken(userDB, teamId || user.teamId),
-      ...(await this.getUserDetails(userDB, teamMember.isCompliant)),
+      ...(await this.getUserDetails(userDB)),
     };
   }
 
@@ -130,12 +124,12 @@ export class AuthService {
           updatedAt: new Date().valueOf(),
         }),
       );
-      const teamMember = new TeamMember();
-      teamMember.user = newUser;
-      teamMember.team = team;
-      teamMember.clientId = client.id;
-      teamMember.createdAt = new Date().valueOf();
-      teamMember.isCompliant = true;
+      const teamMember = new TeamMember({
+        user: newUser,
+        team: team,
+        clientId: client.id,
+        createdAt: Date.now(),
+      });
       await queryRunner.manager.save(teamMember);
       await queryRunner.manager.save(UserPermissionGroup, {
         user: newUser,
@@ -264,12 +258,11 @@ export class AuthService {
     await this.deleteCode(otp);
   }
 
-  async getUserDetails(user: User, isCompliant: boolean) {
+  async getUserDetails(user: User) {
     return {
       user: {
         id: user.id,
         companyName: user.client.companyName,
-        isCompliant: isCompliant,
         permissions: user.permissionGroups
           .map((pg) =>
             pg.permissionGroup.permissions.map((p) => ({

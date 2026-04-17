@@ -21,19 +21,19 @@ import { formatResponse } from "../../util/helper-util";
 export class GoogleController {
   constructor(
     private readonly googleService: GoogleSerivce,
-    private readonly userService: UsersService
   ) {}
 
   private readonly logger = new Logger(GoogleController.name);
 
   @Get("oauth")
   async getUrl(@Res() res, @Query("connectorId") connectorId?: string) {
-    return formatResponse(
-      this.logger,
-      this.googleService.getGoogleAuth(connectorId),
-      res,
-      `getting auth url`
-    );
+    try {
+      const { url } = await this.googleService.getGoogleAuth(connectorId);
+      return res.redirect(url);
+    } catch (err) {
+      this.logger.error(`getting auth url failed`, err);
+      return res.status(500).send("Failed to get auth url");
+    }
   }
 
   // Get Google OAuth URL for adding new inbox to authenticated user
@@ -67,15 +67,15 @@ export class GoogleController {
   }
 
   // Delete credential (disconnect inbox)
-  @Delete("credentials/:id")
+  @Delete("connectors/:id")
   async deleteCredential(
     @Res() res,
     @Req() req,
-    @Param("id") credentialId: string
+    @Param("id") connectorId: string
   ) {
     return formatResponse(
       this.logger,
-      this.googleService.disconnectInbox(credentialId, req.user.id),
+      this.googleService.disconnectConnector(connectorId),
       res,
       "disconnecting inbox"
     );

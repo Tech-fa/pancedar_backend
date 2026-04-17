@@ -18,12 +18,13 @@ export enum Events {
   RENEW_TOKEN='renew_token',
   PROCESS_INCOMING_EMAIL='process_incoming_email',
   CRON_JOB_SCHEDULER = 'cron_job_scheduler',
-  /** After a DB cron job tick completes successfully → match `cron_job_executed` workflows and queue RUN_WORKFLOW. */
-  CRON_JOB_EXECUTION_WORKFLOW = 'cron_job_execution_workflow',
   /** History change → resolve workflow trigger via entity service `getTriggerName` and run matching workflows. */
   WORKFLOW_TRIGGER_CHANGE_FROM_DATA_ENTITY = 'workflow_trigger_change_from_data_entity',
   RUN_WORKFLOW = 'run_workflow',
   CHECK_USER_COMPLIANCE = 'check_user_compliance',
+  /** Workflow email reply draft + category resources for downstream sending. */
+  EMAIL_WORKFLOW_REPLY = 'email_workflow_reply',
+  EMAIL_ASSISTANT = 'email_assistant',
 }
 
 

@@ -12,10 +12,9 @@ import {
 import { Type } from "class-transformer";
 
 export class WorkflowConditionItemDto {
-
   @IsOptional()
   @IsString()
-  stepId?:string;
+  stepId?: string;
 
   @IsOptional()
   @IsString()
@@ -81,43 +80,46 @@ export class WorkflowTriggerDto {
 }
 
 export class WorkflowStepDto {
-  @IsOptional()
-  @IsString()
-  id?: string;
-
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
   name: string;
 
-  @IsNumber()
-  order: number;
-
-  @IsOptional()
-  @IsString()
-  connectorActionInstanceId?: string;
-
-  @IsOptional()
-  @IsObject()
-  variableBindings?: Record<string, any>;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  injectionModules?: string[];
-
+  values: { [key: string]: any };
+}
+export class Explanation {
   @IsString()
   @IsNotEmpty()
-  kind: "action" | "condition";
+  explanation: string;
 
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => WorkflowTriggerDto)
-  subTriggers?: WorkflowTriggerDto[];
+  references: {
+    entityName: string;
+    entityId: string;
+  };
+}
+export enum WorkflowRunStatus {
+  PENDING = "pending",
+  AWAITING_ACTION = "awaiting_action",
+  RETRYING = "retrying",
+  COMPLETED = "completed",
+  FAILED = "failed",
+}
+
+export class WorkflowStepConfigDto {
+  @IsString()
+  @IsNotEmpty()
+  label: string;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  required: boolean;
+
+  @IsNotEmpty()
+  @IsString()
+  value?: string;
 }
 
 export class ConditionFieldSourceDto {
-
   @IsString()
   @IsNotEmpty()
   sourceType: string;
@@ -136,6 +138,18 @@ export class GetConditionFieldsDto {
   @ValidateNested({ each: true })
   @Type(() => ConditionFieldSourceDto)
   sources: ConditionFieldSourceDto[];
+}
+
+export class UpdateWorkflowStepsDto {
+  @IsOptional()
+  @IsString()
+  description?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WorkflowStepDto)
+  steps?: WorkflowStepDto[];
 }
 
 export class UpdateWorkflowDto {
@@ -166,5 +180,5 @@ export interface WorkflowConditionItemDto {
   field: string;
   operator: string;
   value?: string;
-  step?:string
+  step?: string;
 }

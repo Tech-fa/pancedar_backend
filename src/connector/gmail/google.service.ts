@@ -14,9 +14,9 @@ import {
   getHeader,
 } from "../../util/helper-util";
 import { UsersService } from "../../user/user.service";
-import { UserCredential } from "../../user/userCredendtial.entity";
 import { ConnectorService } from "../connector.service";
 import { ConnectorStatus } from "../dto";
+import { Connector } from "../connector.entity";
 
 @Injectable()
 export class GoogleSerivce {
@@ -30,12 +30,12 @@ export class GoogleSerivce {
     private configService: ConfigService,
     private userService: UsersService,
     private queueProducer: QueuePublisher,
-    private connectorService: ConnectorService
+    private connectorService: ConnectorService,
   ) {
     this.oauth2Client = new google.auth.OAuth2(
       this.configService.get("GOOGLE_CLIENT_ID"),
       this.configService.get("GOOGLE_CLIENT_SECRET"),
-      this.configService.get("GOOGLE_REDIRECT")
+      this.configService.get("GOOGLE_REDIRECT"),
     );
   }
 
@@ -46,41 +46,48 @@ export class GoogleSerivce {
       const inboxEmail = json["emailAddress"];
 
       // Find credential by inbox email
-      let credential = await this.userService.findCredentialByInboxEmail(
+      const connector = await this.connectorService.findOneByPrimaryIdentifier(
         inboxEmail,
-        ["user"]
       );
 
-      if (!credential) {
-        this.logger.warn(`No credential found for ${inboxEmail}`);
+      if (!connector) {
+        this.logger.warn(`No connector found for ${inboxEmail}`);
         message.ack();
         return;
       }
-
+      if (connector.status !== ConnectorStatus.ACTIVE) {
+        this.logger.warn(`Connector ${connector.id} is not active`);
+        message.ack();
+        return;
+      }
+      const credential = connector.credentials;
+      let newCredential = null;
       if (aboutToExpire(credential.expiryDate)) {
-        const oldCred = credential;
-        credential = await this.renewTokenForCredential(credential);
-        if (!credential) {
-          await this.stopWatchForCredential(oldCred);
-          oldCred.expired = true;
-          await this.userService.saveCredential(oldCred);
+        newCredential = await this.renewTokenForConnector(connector);
+        if (!newCredential) {
+          await this.stopWatchForConnector(connector);
+          credential.expired = true;
+          connector.status = ConnectorStatus.INACTIVE;
+          await this.connectorService.saveConnector(connector);
           message.ack();
           return;
         }
       }
-      const tokens = JSON.parse(await decrypt(credential.tokens));
+
+      const tokens = JSON.parse(await decrypt(newCredential.tokens));
 
       const gmail = await google.gmail("v1");
       const lastHistory = credential.lastHistoryId;
 
-      credential.lastHistoryId = json.historyId;
-      await this.userService.saveCredential(credential);
+      newCredential.lastHistoryId = json.historyId;
+      connector.credentials = newCredential;
+      await this.connectorService.saveConnector(connector);
       let messageIds: string[] = [];
 
       if (!lastHistory) {
         // First time: fetch recent inbox messages directly
         this.logger.log(
-          `First sync for ${inboxEmail}, fetching recent inbox messages`
+          `First sync for ${inboxEmail}, fetching recent inbox messages`,
         );
         const messagesResponse = await gmail.users.messages.list(
           {
@@ -88,7 +95,7 @@ export class GoogleSerivce {
             labelIds: ["INBOX"],
             maxResults: 3, // Fetch last 20 emails on first sync
           },
-          { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+          { headers: { Authorization: `Bearer ${tokens.access_token}` } },
         );
         messageIds = (messagesResponse.data.messages || []).map((m) => m.id);
       } else {
@@ -99,7 +106,7 @@ export class GoogleSerivce {
             startHistoryId: lastHistory,
             labelId: "INBOX",
           },
-          { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+          { headers: { Authorization: `Bearer ${tokens.access_token}` } },
         );
         const history = emails.data.history || [];
 
@@ -116,7 +123,7 @@ export class GoogleSerivce {
       for (const msgId of messageIds) {
         // Check if we already have this message
         const existingEmail = await this.userService.findIncomingEmailByMessageId(
-          msgId
+          msgId,
         );
         if (existingEmail) {
           this.logger.log(`Message ${msgId} already exists, skipping`);
@@ -126,12 +133,12 @@ export class GoogleSerivce {
         const emailData = await this.getMessage(
           tokens.access_token,
           msgId,
-          gmail
+          gmail,
         );
 
         // Save incoming email to database
         const savedEmail = await this.userService.saveIncomingEmail({
-          credential,
+          connector,
           from: emailData.from,
           subject: emailData.subject,
           htmlText: emailData.textAsHtml,
@@ -147,13 +154,13 @@ export class GoogleSerivce {
         });
 
         this.logger.log(
-          `Saved, archived, and queued incoming email ${savedEmail.id} from ${emailData.from}`
+          `Saved, archived, and queued incoming email ${savedEmail.id} from ${emailData.from}`,
         );
       }
     } catch (erro) {
       this.logger.error(
         `error occured with getting gmail message ${erro}`,
-        erro
+        erro,
       );
     }
     message.ack();
@@ -242,7 +249,7 @@ export class GoogleSerivce {
         if (part.body?.data) {
           try {
             const content = Buffer.from(part.body.data, "base64").toString(
-              "utf-8"
+              "utf-8",
             );
             if (content) return content;
           } catch {
@@ -267,7 +274,7 @@ export class GoogleSerivce {
         userId: "me",
         id,
       },
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: { Authorization: `Bearer ${token}` } },
     );
 
     const payload = response.data.payload;
@@ -316,7 +323,7 @@ export class GoogleSerivce {
             removeLabelIds: ["INBOX"],
           },
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       this.logger.log(`Archived message ${messageId}`);
     } catch (error) {
@@ -334,7 +341,7 @@ export class GoogleSerivce {
           userId: "me",
           id: messageId,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       this.logger.log(`Trashed message ${messageId}`);
       return true;
@@ -344,23 +351,25 @@ export class GoogleSerivce {
     }
   }
 
-  async getAccessTokenForCredential(
-    credential: UserCredential
+  async getAccessTokenForConnector(
+    connector: Connector,
   ): Promise<string | null> {
     try {
+      const credential = JSON.parse(await decrypt(connector.credentials));
       // Check if token needs renewal
+      let newCredential = null;
       if (aboutToExpire(credential.expiryDate)) {
-        credential = await this.renewTokenForCredential(credential);
-        if (!credential) {
+        newCredential = await this.renewTokenForConnector(connector);
+        if (!newCredential) {
           return null;
         }
       }
-      const tokens = JSON.parse(await decrypt(credential.tokens));
+      const tokens = JSON.parse(await decrypt(newCredential.tokens));
       return tokens.access_token;
     } catch (error) {
       this.logger.error(
-        `Failed to get access token for credential ${credential.id}`,
-        error
+        `Failed to get access token for connector ${connector.id}`,
+        error,
       );
       return null;
     }
@@ -375,7 +384,7 @@ export class GoogleSerivce {
       connectorId: connectorId || null,
     };
     const state = Buffer.from(JSON.stringify(stateData), "utf-8").toString(
-      "base64"
+      "base64",
     );
     const authorizationUrl = this.oauth2Client.generateAuthUrl({
       access_type: "offline",
@@ -391,11 +400,12 @@ export class GoogleSerivce {
     return { url: authorizationUrl };
   }
 
-  async renewTokenForCredential(credential: UserCredential) {
+  async renewTokenForConnector(connector: Connector) {
     const oauth2Client = new OAuth2Client(
       this.configService.get("GOOGLE_CLIENT_ID"),
-      this.configService.get("GOOGLE_CLIENT_SECRET")
+      this.configService.get("GOOGLE_CLIENT_SECRET"),
     );
+    const credential = connector.credentials;
     const oldTokens = JSON.parse(await decrypt(credential.tokens));
     oauth2Client.setCredentials({ refresh_token: oldTokens.refresh_token });
     try {
@@ -405,45 +415,33 @@ export class GoogleSerivce {
         JSON.stringify({
           access_token: newAccessToken,
           refresh_token: oldTokens.refresh_token,
-        })
+        }),
       );
       credential.expiryDate = tokens.credentials.expiry_date;
-      await this.userService.saveCredential(credential);
+      await this.connectorService.saveConnector(connector);
       return credential;
     } catch (err) {
       this.logger.error(
         `Failed to renew token for credential ${credential.inboxEmail}`,
-        err
+        err,
       );
       return null;
     }
   }
 
-  async renewTokenByInboxEmail(inboxEmail: string) {
-    const credential = await this.userService.findCredentialByInboxEmail(
-      inboxEmail,
-      ["user"]
-    );
-    if (!credential) {
-      this.logger.warn(`Credential for ${inboxEmail} not found`);
-      return;
-    }
-    return this.renewTokenForCredential(credential);
-  }
-
-  async stopWatchForCredential(credential: UserCredential) {
+  async stopWatchForConnector(connector: Connector) {
     const gmail = await google.gmail("v1");
-    const tokens = JSON.parse(await decrypt(credential.tokens));
+    const tokens = JSON.parse(await decrypt(connector.credentials.tokens));
     try {
       const res = await gmail.users.stop(
         { userId: "me" },
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
       return res.data;
     } catch (error) {
       this.logger.error(
-        `Failed to stop watch for credential ${credential.inboxEmail}`,
-        error
+        `Failed to stop watch for connector ${connector.id}`,
+        error,
       );
     }
   }
@@ -456,7 +454,7 @@ export class GoogleSerivce {
     // Extract user email from state if provided
     try {
       const stateData = JSON.parse(
-        Buffer.from(state, "base64").toString("utf-8")
+        Buffer.from(state, "base64").toString("utf-8"),
       );
       connectorId = stateData.connectorId;
     } catch (error) {
@@ -468,7 +466,7 @@ export class GoogleSerivce {
       const oauth2 = await google.oauth2("v2");
       googleUserInfo = await oauth2.userinfo.get(
         {},
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
     } catch (error) {
       this.logger.error("user did not authorize us");
@@ -489,7 +487,7 @@ export class GoogleSerivce {
             labelFilterBehavior: "INCLUDE",
           },
         },
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
       this.logger.log("watcher done");
     } catch (error) {
@@ -503,30 +501,21 @@ export class GoogleSerivce {
       return;
     }
     connector.status = ConnectorStatus.ACTIVE;
-    connector.credentials = await encrypt(
-      JSON.stringify({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-      })
-    );
+
+    connector.credentials = {
+      tokens: await encrypt(
+        JSON.stringify({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+        }),
+      ),
+    };
     await this.connectorService.saveConnector(connector);
   }
 
-  async renewWatch(inboxEmail: string) {
-    let credential = await this.userService.findCredentialByInboxEmail(
-      inboxEmail,
-      ["user"]
-    );
-    if (!credential) {
-      this.logger.warn(`Credential for ${inboxEmail} not found`);
-      return;
-    }
-    if (aboutToExpire(credential.expiryDate)) {
-      credential = await this.renewTokenForCredential(credential);
-      if (!credential) {
-        return;
-      }
-    }
+  async renewWatch(connector: Connector) {
+  
+    const credential = connector.credentials;
     const gmail = await google.gmail("v1");
     const tokens = JSON.parse(await decrypt(credential.tokens));
     if (process.env.NODE_ENV == "production") {
@@ -539,41 +528,33 @@ export class GoogleSerivce {
             labelFilterBehavior: "INCLUDE",
           },
         },
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
     }
     credential.watcherDate = new Date().valueOf();
-    await this.userService.saveCredential(credential);
+    await this.connectorService.saveConnector(connector);
   }
 
-  async disconnectInbox(credentialId: string, userId: string) {
+  async disconnectConnector(connectorId: string) {
     // First, get the credential to stop the watch
-    const credential = await this.userService.findCredentialById(credentialId, [
-      "user",
-    ]);
-
-    if (!credential || credential.user.id !== userId) {
-      throw new Error("Credential not found or access denied");
+    const connector = await this.connectorService.findOneById(connectorId);
+    if (!connector) {
+      throw new Error("Connector not found");
     }
 
     // Stop the Gmail watch for this credential
     try {
-      await this.stopWatchForCredential(credential);
-      this.logger.log(`Stopped watch for credential ${credential.inboxEmail}`);
+      await this.stopWatchForConnector(connector);
+      this.logger.log(`Stopped watch for connector ${connector.id}`);
     } catch (error) {
       this.logger.warn(
-        `Failed to stop watch for ${credential.inboxEmail}, continuing with deletion`,
-        error
+        `Failed to stop watch for ${connector.id}, continuing with deletion`,
+        error,
       );
       // Continue with deletion even if stopWatch fails
     }
-
-    // Delete the credential and all associated emails
-    const result = await this.userService.deleteCredentialAndEmails(
-      credentialId,
-      userId
-    );
-
-    return result;
+    connector.status = ConnectorStatus.INACTIVE;
+    await this.connectorService.saveConnector(connector);
+    return connector;
   }
 }

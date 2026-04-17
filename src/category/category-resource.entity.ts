@@ -1,0 +1,33 @@
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from "typeorm";
+import { WorkflowEmailCategory } from "./category.entity";
+import { ClientBaseEntity } from "../client/client-base";
+
+@Entity("workflow_email_category_resources")
+export class WorkflowEmailCategoryResource extends ClientBaseEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @ManyToOne(() => WorkflowEmailCategory, (c) => c.resources, {
+    onDelete: "CASCADE",
+  })
+  @JoinColumn({ name: "category_id" })
+  category: WorkflowEmailCategory;
+
+  @Column({ name: "category_id", type: "varchar", length: 36 })
+  categoryId: string;
+
+  @Column({ name: "text_resource", type: "text", nullable: true })
+  textResource: string | null;
+
+  @Column({ name: "links", type: "json", nullable: true })
+  links: string[];
+
+  @Column({ name: "files", type: "json", nullable: true })
+  files: string[];
+}

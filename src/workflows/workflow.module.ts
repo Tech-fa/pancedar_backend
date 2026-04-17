@@ -1,22 +1,22 @@
-import { Module, forwardRef } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Workflow } from "./workflow.entity";
-import { ConnectorModule } from "../connector/connector.module";
 import { QueueModule } from "../queue/queue.module";
-import { ServiceMappingModule } from "../service-mapping/service-mapping.module";
 import { WorkflowService } from "./workflow.service";
-import { WorkflowController } from "./workflow.controller";  
+import { WorkflowController } from "./workflow.controller";
+import { WorkflowQueueHandler } from "./workflow-queue-handler.service";
+import { WorkflowRun } from "./workflow-run.entity";
+import { UsersModule } from "../user/user.module";
+import { ConnectorModule } from "../connector/connector.module";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Workflow,
-    ]),
-    ConnectorModule,
+    TypeOrmModule.forFeature([Workflow, WorkflowRun]),
     QueueModule,
-    ServiceMappingModule,
+    UsersModule,
+    ConnectorModule,
   ],
-  providers: [WorkflowService],
+  providers: [WorkflowService, WorkflowQueueHandler],
   controllers: [WorkflowController],
   exports: [WorkflowService],
 })

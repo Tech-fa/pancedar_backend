@@ -164,6 +164,14 @@ export const workflowPermission = {
   base_route: "workflows",
 };
 
+export const emailWorkflowCategoryPermission = {
+  subject: "email_workflow_categories",
+  label: "Email Workflow Category",
+  actions: actions,
+  service_tag: "workflows",
+  base_route: "email-categories",
+};
+
 export const connectorPermission = {
   subject: "connectors",
   label: "Connector",
@@ -194,23 +202,9 @@ export const permissions: {
   [key: string]: PermissionTree;
 } = {
   userPermission,
-  DocumentTypePermission,
-  DocumentPermission,
-  approvalStrategyPermission,
-  customerPermission,
-  changeRequestPermission,
-  reportPermission,
-  assetsPermission,
-  assetCategoryPermission,
-  assetModelPermission,
-  skillPermission,
   workflowPermission,
+  emailWorkflowCategoryPermission,
   teamPermission,
-  checklistPermission,
-  cronJobPermission,
-  vehicleJobPermission,
-  vehicleJobTypePermission,
-  jobPermission,
 };
 
 export const permissionTree: {
@@ -218,16 +212,7 @@ export const permissionTree: {
 } = {
   teamPermission,
   userPermission,
-  DocumentPermission,
-  customerPermission,
-  assetsPermission,
-  assetCategoryPermission,
-  assetModelPermission,
-  skillPermission,
-  reportPermission,
-  checklistPermission,
-  cronJobPermission,
-  jobPermission,
+  emailWorkflowCategoryPermission,
 };
 
 export const defaultPermissionGroups = [
@@ -251,20 +236,5 @@ export const defaultPermissionGroups = [
         action: "manage",
       })),
     description: "Fleet Ops permission group gives access to Fleet Ops Modules",
-  },
-  {
-    name: "Drone Pilot",
-    permissions: [
-      {
-        subject: skillPermission.subject,
-        action: "manage",
-      },
-      {
-        subject: DocumentPermission.subject,
-        action: "manage",
-      },
-      { subject: vehicleJobPermission.subject, action: "manage" },
-    ],
-    description: "Drone Pilot permission group gives access to Pilot Modules",
   },
 ];

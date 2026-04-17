@@ -14,34 +14,26 @@ import { PermissionModule } from "./permissions/permission.module";
 import { HistoryModule } from "./history/history.module";
 import { EmailHandlerModule } from "./email-handler/email-handler.module";
 import { QueueModule } from "./queue/queue.module";
-import { ServiceMappingModule } from "./service-mapping/service-mapping.module";
 import { MediaModule } from "./media/media.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { ClientModule } from "./client/client.module";
 import { TeamModule } from "./team/team.module";
-import psqlConfiguration from "./db/psql";
 import { ConnectorModule } from "./connector/connector.module";
 import { WorkflowModule } from "./workflows/workflow.module";
+import { EmailAssistantModule } from "./workflows/email-assistant/email-assistant.module";
 import { GoogleModule } from "./connector/gmail/google.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env.override", ".env.local", ".env", ".env.aws"],
-      load: [dbConfiguration, psqlConfiguration],
+      load: [dbConfiguration],
     }), // .env.override takes priority when duplicates exist
     TypeOrmModule.forRootAsync({
       name: "default",
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) =>
         configService.get("database"),
-      inject: [ConfigService],
-    }),
-    TypeOrmModule.forRootAsync({
-      name: "secondary",
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) =>
-        configService.get("psql"),
       inject: [ConfigService],
     }),
     AuthModule,
@@ -51,13 +43,13 @@ import { GoogleModule } from "./connector/gmail/google.module";
     HistoryModule,
     EmailHandlerModule,
     QueueModule,
-    ServiceMappingModule,
     MediaModule,
     ScheduleModule.forRoot(),
     ClientModule,
     TeamModule,
     ConnectorModule,
     WorkflowModule,
+    EmailAssistantModule,
     GoogleModule,
   ],
   controllers: [AppController],

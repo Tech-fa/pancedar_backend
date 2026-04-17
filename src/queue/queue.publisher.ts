@@ -2,8 +2,10 @@ import { AmqpConnection } from "@golevelup/nestjs-rabbitmq";
 import { Injectable } from "@nestjs/common";
 import { Events, getRouteName } from "./queue-constants";
 import { EmailType } from "../common/dto";
-import { EmailHandlerDTO } from "../email-handler/dto";
-import { CronJobExecutionWorkflowPayload } from "../workflows/workflow-trigger-queue-handler.service";
+import {
+  EmailHandlerDTO,
+  EmailWorkflowReplyPayload,
+} from "../email-handler/dto";
 
 @Injectable()
 export class QueuePublisher {
@@ -83,15 +85,14 @@ export class QueuePublisher {
     return this.publish(Events.CRON_JOB_SCHEDULER, data);
   }
 
-  /** Successful cron tick → WorkflowTriggerQueueHandler runs matching `cron_job_executed` workflows. */
-  publishCronJobExecutionWorkflow(data: CronJobExecutionWorkflowPayload) {
-    return this.publish(Events.CRON_JOB_EXECUTION_WORKFLOW, data);
-  }
+
 
   publishWorkflowTriggerChange(data: {
     entityType: string;
     entityId: string;
-    changes: Record<string, { oldValue: unknown; newValue: unknown }> | Record<string, never>;
+    changes:
+      | Record<string, { oldValue: unknown; newValue: unknown }>
+      | Record<string, never>;
     action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN";
     clientId: string;
     userId: string;
@@ -106,6 +107,8 @@ export class QueuePublisher {
   }) {
     return this.publish(Events.CHECK_USER_COMPLIANCE, data);
   }
+
+
 
   async publish(event: Events, data) {
     return this.queue.publish("exchange1", getRouteName(event), data);

@@ -16,8 +16,7 @@ import {
 import { PaginatedResponse } from "../common/pagination.dto";
 import { UserRequest } from "../permissions/dto";
 import { PermissionService } from "../permissions/permission.service";
-import { UserType } from "src/user/user.entity";
-import e from "express";
+import { UserType } from "../user/user.entity";
 
 @Injectable()
 export class TeamService {

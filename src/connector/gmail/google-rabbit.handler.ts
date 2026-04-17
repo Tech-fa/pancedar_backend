@@ -1,9 +1,9 @@
-import { RabbitSubscribe } from '@golevelup/nestjs-rabbitmq';
-import { Injectable, Logger } from '@nestjs/common';
-import { Events, getListening } from '../../queue/queue-constants';
-import { GoogleSerivce } from './google.service';
-import { Public } from '../../util/constants';
-import { UsersService } from '../../user/user.service';
+import { RabbitSubscribe } from "@golevelup/nestjs-rabbitmq";
+import { Injectable, Logger } from "@nestjs/common";
+import { Events, getListening } from "../../queue/queue-constants";
+import { GoogleSerivce } from "./google.service";
+import { Public } from "../../util/constants";
+import { ConnectorService } from "../connector.service";
 
 @Injectable()
 export class GoogleRabbitHandler {
@@ -11,21 +11,28 @@ export class GoogleRabbitHandler {
 
   constructor(
     private readonly googleService: GoogleSerivce,
-    private readonly userService: UsersService,
+    private readonly connectorService: ConnectorService,
   ) {}
 
   @RabbitSubscribe(getListening(Events.RENEW_WATCH))
   @Public()
-  async handleRenewWatch(payload: { inbox_email: string }) {
+  async handleRenewWatch(payload: { connectorId: string }) {
     try {
-      this.logger.log(`Renewing watch for user ${payload.inbox_email}`);
-      await this.googleService.renewWatch(payload.inbox_email);
+      this.logger.log(`Renewing watch for connector ${payload.connectorId}`);
+      const connector = await this.connectorService.findOneById(
+        payload.connectorId,
+      );
+      if (!connector) {
+        this.logger.warn(`Connector ${payload.connectorId} not found`);
+        return;
+      }
+      await this.googleService.renewWatch(connector);
       this.logger.log(
-        `Successfully renewed watch for user ${payload.inbox_email}`,
+        `Successfully renewed watch for connector ${payload.connectorId}`,
       );
     } catch (error) {
       this.logger.error(
-        `Error renewing watch for user ${payload.inbox_email}`,
+        `Error renewing watch for connector ${payload.connectorId}`,
         error,
       );
     }
@@ -33,16 +40,23 @@ export class GoogleRabbitHandler {
 
   @RabbitSubscribe(getListening(Events.RENEW_TOKEN))
   @Public()
-  async handleRenewToken(payload: { inbox_email: string }) {
+  async handleRenewToken(payload: { connectorId: string }) {
     try {
-      this.logger.log(`Renewing token for credential ${payload.inbox_email}`);
-      await this.googleService.renewTokenByInboxEmail(payload.inbox_email);
+      this.logger.log(`Renewing token for connector ${payload.connectorId}`);
+      const connector = await this.connectorService.findOneById(
+        payload.connectorId,
+      );
+      if (!connector) {
+        this.logger.warn(`Connector ${payload.connectorId} not found`);
+        return;
+      }
+      await this.googleService.renewTokenForConnector(connector);
       this.logger.log(
-        `Successfully renewed token for credential ${payload.inbox_email}`,
+        `Successfully renewed token for connector ${payload.connectorId}`,
       );
     } catch (error) {
       this.logger.error(
-        `Error renewing token for credential ${payload.inbox_email}`,
+        `Error renewing token for connector ${payload.connectorId}`,
         error,
       );
     }

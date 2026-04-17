@@ -5,12 +5,14 @@ import {
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
+  Unique,
 } from "typeorm";
 import { ClientBaseEntity } from "../client/client-base";
 import { Team } from "../team/team.entity";
 import { ConnectorStatus } from "./dto";
 
 @Entity("connectors")
+@Unique(["primaryIdentifier"])
 export class Connector extends ClientBaseEntity {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -18,8 +20,11 @@ export class Connector extends ClientBaseEntity {
   @Column({ name: "name", type: "varchar", length: 255 })
   name: string;
 
-  @Column({ name: "credentials", type: "text", nullable: true })
-  credentials: string;
+  @Column({ name: "primary_identifier", type: "varchar", length: 255 })
+  primaryIdentifier: string;
+
+  @Column({ name: "credentials", type: "json", nullable: true })
+  credentials: {[key: string]: any};
 
   @Column({ name: "connector_type_id", type: "varchar", length: 36 })
   connectorTypeId: string;

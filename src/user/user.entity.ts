@@ -10,9 +10,6 @@ import {
 import { UserPermissionGroup } from "../permissions/user-permission-group.entity";
 import { ClientBaseEntity } from "../client/client-base";
 import { TrackChanges, ExcludeField } from "../history/track-changes.decorator";
-import { UserSkill } from "../skill/userSkill.entity";
-import { UserCredential } from "./userCredendtial.entity";
-import { Team } from "../team/team.entity";
 
 export enum UserType {
   STANDARD = "standard",
@@ -79,10 +76,4 @@ export class User extends ClientBaseEntity {
 
   @Column({ name: "last_login", type: "bigint", nullable: true })
   lastLogin: number;
-
-  @OneToMany(() => UserSkill, (skill) => skill.user)
-  skills: UserSkill[];
-
-  @OneToMany(() => UserCredential, (credential) => credential.user)
-  credentials: UserCredential[];
 }

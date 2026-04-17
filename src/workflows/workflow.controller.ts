@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   Res,
 } from "@nestjs/common";
@@ -15,11 +16,7 @@ import { WorkflowService } from "./workflow.service";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
 import { workflowPermission } from "../permissions/permissions";
-import {
-  CreateWorkflowDto,
-  GetConditionFieldsDto,
-  WorkflowTriggerDto,
-} from "./dto";
+import { CreateWorkflowDto, UpdateWorkflowStepsDto } from "./dto";
 
 @Controller("workflows")
 export class WorkflowController {
@@ -29,12 +26,27 @@ export class WorkflowController {
 
   @Get("available")
   @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
-  async findAvailableWorkflows(@Req() req, @Res() res: Response) {
+  async findAvailableWorkflows(@Res() res: Response) {
     return formatResponse(
       this.logger,
-      this.workflowService.findAvailableWorkflows(req.user),
+      this.workflowService.findAvailableWorkflows(),
       res,
       "Available workflows fetched successfully",
+    );
+  }
+
+  @Get("need-connectors")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
+  async findNeedConnectors(
+    @Req() req,
+    @Res() res: Response,
+    @Query("onlyMissing") onlyMissing: boolean = false,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.findNeedConnectors(req.user, onlyMissing),
+      res,
+      "Need connectors fetched successfully",
     );
   }
 
@@ -61,6 +73,33 @@ export class WorkflowController {
       this.workflowService.create(req.user, dto),
       res,
       "Workflow created successfully",
+    );
+  }
+
+  @Get(":id")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
+  async findOne(@Req() req, @Res() res: Response, @Param("id") id: string) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.findOne(req.user, id),
+      res,
+      "Workflow fetched successfully",
+    );
+  }
+
+  @Put(":id")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["update"] })
+  async update(
+    @Req() req,
+    @Res() res: Response,
+    @Param("id") id: string,
+    @Body() dto: UpdateWorkflowStepsDto,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.updateSteps(req.user, id, dto),
+      res,
+      "Workflow updated successfully",
     );
   }
 

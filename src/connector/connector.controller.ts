@@ -11,36 +11,24 @@ import {
   Res,
 } from "@nestjs/common";
 import type { Response } from "express";
+import { ModuleRef } from "@nestjs/core";
 import { ConnectorService } from "./connector.service";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
 import { connectorPermission } from "../permissions/permissions";
-import {
-  CreateConnectorDto,
-  UpdateConnectorDto,
-  ExecuteActionDto,
-  CreateConnectorActionInstanceDto,
-  UpdateConnectorActionInstanceDto,
-} from "./dto";
+import { CreateConnectorDto, UpdateConnectorDto } from "./dto";
+import { GoogleSerivce } from "./gmail/google.service";
+
+class AddConnectionDto {
+  connectorTypeName: string;
+  name?: string;
+}
 
 @Controller("connectors")
 export class ConnectorController {
   private readonly logger = new Logger(ConnectorController.name);
 
   constructor(private readonly connectorService: ConnectorService) {}
-
-  // ── Connector Types (read-only, global) ──
-
-  @Get("types")
-  @hasPermission({ subject: connectorPermission.subject, actions: ["read"] })
-  async findAllTypes(@Res() res: Response) {
-    return formatResponse(
-      this.logger,
-      this.connectorService.findAllTypes(),
-      res,
-      "Connector types fetched successfully",
-    );
-  }
 
   @Get()
   @hasPermission({ subject: connectorPermission.subject, actions: ["read"] })
@@ -77,6 +65,46 @@ export class ConnectorController {
       this.connectorService.create(req.user, dto),
       res,
       "Connector created successfully",
+    );
+  }
+
+  @Post("add-connection")
+  @hasPermission({ subject: connectorPermission.subject, actions: ["create"] })
+  async addConnection(
+    @Req() req,
+    @Res() res: Response,
+    @Body() dto: AddConnectionDto,
+  ) {
+    return formatResponse(
+      this.logger,
+      (async () => {
+        const connector = await this.connectorService.addConnection(
+          req.user,
+          dto.connectorTypeName,
+          dto.name,
+        );
+        const typeConfig = this.connectorService.findTypeByName(
+          dto.connectorTypeName,
+        );
+        let oauthUrl: string | undefined;
+        if (typeConfig?.oauthUrl) {
+          oauthUrl = typeConfig.oauthUrl;
+        }
+        return { connectorId: connector.id, connector, oauthUrl };
+      })(),
+      res,
+      "Connector connection created successfully",
+    );
+  }
+
+  @Put("reconnect/:id")
+  @hasPermission({ subject: connectorPermission.subject, actions: ["update"] })
+  async reconnect(@Req() req, @Res() res: Response, @Param("id") id: string) {
+    return formatResponse(
+      this.logger,
+      this.connectorService.reconnect(id),
+      res,
+      "Connector reconnected successfully",
     );
   }
 

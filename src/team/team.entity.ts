@@ -30,13 +30,18 @@ export class Team extends ClientBaseEntity {
   @Column({ name: "updated_at", type: "bigint" })
   updatedAt: number;
 
-  @OneToMany(() => TeamMember, (m) => m.team)
+  @OneToMany(() => TeamMember, (m) => m.team, { cascade: true })
   members: TeamMember[];
 }
 
 @Entity("team_members")
 @Index(["team", "user"], { unique: true })
 export class TeamMember extends ClientBaseEntity {
+  constructor(data: Partial<TeamMember>) {
+    super();
+    Object.assign(this, data);
+  }
+
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
@@ -53,9 +58,6 @@ export class TeamMember extends ClientBaseEntity {
 
   @Column({ name: "user_id", type: "varchar" })
   userId: string;
-
-  @Column({ name: "is_compliant", type: "boolean", default: false })
-  isCompliant: boolean;
 
   @Column({ name: "created_at", type: "bigint" })
   createdAt: number;

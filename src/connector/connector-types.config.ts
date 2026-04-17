@@ -23,7 +23,7 @@ export interface ConnectorTypeConfig {
 
 export const connectorTypesConfig: ConnectorTypeConfig[] = [
   {
-    name: "Gmail Api",
+    name: "Gmail",
     serviceName: "apiService",
     oauthUrl: "https://accounts.google.com/o/oauth2/auth",
     description: "Generic API with token-based authentication",
