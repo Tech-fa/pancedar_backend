@@ -170,6 +170,7 @@ export const emailWorkflowCategoryPermission = {
   actions: actions,
   service_tag: "workflows",
   base_route: "email-categories",
+  workflow_specific: true
 };
 
 export const connectorPermission = {
@@ -189,6 +190,7 @@ export const customerPermission = {
 };
 
 interface PermissionTree {
+  workflow_specific?: boolean;
   subject: string;
   label: string;
   actions: string[];
@@ -205,6 +207,7 @@ export const permissions: {
   workflowPermission,
   emailWorkflowCategoryPermission,
   teamPermission,
+  connectorPermission
 };
 
 export const permissionTree: {
@@ -213,6 +216,8 @@ export const permissionTree: {
   teamPermission,
   userPermission,
   emailWorkflowCategoryPermission,
+  workflowPermission,
+  connectorPermission,
 };
 
 export const defaultPermissionGroups = [

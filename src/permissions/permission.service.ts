@@ -77,8 +77,20 @@ export class PermissionService {
     return !!userHasPermission;
   }
 
-  async getAllPermissions(): Promise<any> {
-    return permissionTree;
+  async getAllPermissions(teamId: string): Promise<any> {
+    const workflowSpecificPermissions = Object.values(permissionTree).filter(
+      (p) => p.workflow_specific,
+    );
+    const workflowNames = await this.permissionGroupRepository.query(
+      `SELECT DISTINCT name FROM workflows where team_id = '${teamId}'`,
+    );
+    const returnedPermissions = {};
+    Object.entries(permissionTree)
+      .filter(([key, value]) => !value.workflow_specific)
+      .forEach(([key, value]) => {
+        returnedPermissions[key] = value;
+      });
+    return returnedPermissions;
   }
 
   async getUserPermissionGroups(

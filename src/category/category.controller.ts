@@ -9,18 +9,18 @@ import {
   Put,
   Req,
   Res,
+  UploadedFiles,
+  UseInterceptors,
 } from "@nestjs/common";
-import type { Response } from "express";
+import type { Express, Response } from "express";
+import { FilesInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 import { CategoryService } from "./category.service";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
 import { emailWorkflowCategoryPermission } from "../permissions/permissions";
-import {
-  CreateWorkflowEmailCategoryDto,
-  UpdateWorkflowEmailCategoryDto,
-} from "./dto";
 
-@Controller("email-categories")
+@Controller("categories")
 export class CategoryController {
   private readonly logger = new Logger(CategoryController.name);
 
@@ -57,6 +57,12 @@ export class CategoryController {
   }
 
   @Post()
+  @UseInterceptors(
+    FilesInterceptor("files", 10, {
+      storage: memoryStorage(),
+      limits: { fileSize: 1024 * 1024 * 15 },
+    }),
+  )
   @hasPermission({
     subject: emailWorkflowCategoryPermission.subject,
     actions: ["create"],
@@ -64,18 +70,25 @@ export class CategoryController {
   async create(
     @Req() req,
     @Res() res: Response,
-    @Body() dto: CreateWorkflowEmailCategoryDto,
+    @Body() body: Record<string, unknown>,
+    @UploadedFiles() files: Express.Multer.File[] = [],
   ) {
     const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.create(clientId, dto),
+      this.categoryService.create(clientId, body, files),
       res,
       "Email category created successfully",
     );
   }
 
   @Put(":id")
+  @UseInterceptors(
+    FilesInterceptor("files", 10, {
+      storage: memoryStorage(),
+      limits: { fileSize: 1024 * 1024 * 15 },
+    }),
+  )
   @hasPermission({
     subject: emailWorkflowCategoryPermission.subject,
     actions: ["update"],
@@ -84,12 +97,13 @@ export class CategoryController {
     @Req() req,
     @Res() res: Response,
     @Param("id") id: string,
-    @Body() dto: UpdateWorkflowEmailCategoryDto,
+    @Body() body: Record<string, unknown>,
+    @UploadedFiles() files: Express.Multer.File[] = [],
   ) {
     const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.update(clientId, id, dto),
+      this.categoryService.update(clientId, id, body, files),
       res,
       "Email category updated successfully",
     );

@@ -4,6 +4,7 @@ import { AppService } from "./app.service";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import dbConfiguration from "./db/database";
+import psqlConfiguration from "./db/psql";
 import { AuthModule } from "./authentication/auth.module";
 import { UsersModule } from "./user/user.module";
 import { APP_GUARD } from "@nestjs/core";
@@ -22,18 +23,26 @@ import { ConnectorModule } from "./connector/connector.module";
 import { WorkflowModule } from "./workflows/workflow.module";
 import { EmailAssistantModule } from "./workflows/email-assistant/email-assistant.module";
 import { GoogleModule } from "./connector/gmail/google.module";
+import { ResourceIngestionModule } from "./resource-ingestion/resource-ingestion.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env.override", ".env.local", ".env", ".env.aws"],
-      load: [dbConfiguration],
+      load: [dbConfiguration, psqlConfiguration],
     }), // .env.override takes priority when duplicates exist
     TypeOrmModule.forRootAsync({
       name: "default",
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) =>
         configService.get("database"),
+      inject: [ConfigService],
+    }),
+    TypeOrmModule.forRootAsync({
+      name: "psql",
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) =>
+        configService.get("psql"),
       inject: [ConfigService],
     }),
     AuthModule,
@@ -51,6 +60,7 @@ import { GoogleModule } from "./connector/gmail/google.module";
     WorkflowModule,
     EmailAssistantModule,
     GoogleModule,
+    ResourceIngestionModule,
   ],
   controllers: [AppController],
   providers: [

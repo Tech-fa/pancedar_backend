@@ -13,6 +13,7 @@ import { WorkflowService } from "../workflow.service";
 import { WorkflowRun } from "../workflow-run.entity";
 import { EmailAssistantController } from "./email-assistant.controller";
 import { ConnectorModule } from "../../connector/connector.module";
+import { RagModule } from "../../rag/rag.module";
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ConnectorModule } from "../../connector/connector.module";
     CategoryModule,
     QueueModule,
     ConnectorModule,
+    RagModule,
   ],
   providers: [
     CategorizeEmailService,

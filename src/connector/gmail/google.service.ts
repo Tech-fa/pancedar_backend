@@ -35,7 +35,7 @@ export class GoogleSerivce {
     this.oauth2Client = new google.auth.OAuth2(
       this.configService.get("GOOGLE_CLIENT_ID"),
       this.configService.get("GOOGLE_CLIENT_SECRET"),
-      this.configService.get("GOOGLE_REDIRECT"),
+      `${process.env.API_URL}/gmail/verify`,
     );
   }
 
@@ -394,6 +394,7 @@ export class GoogleSerivce {
       scope: this.scopes,
       // Enable incremental authorization. Recommended as a best practice.
       include_granted_scopes: true,
+      redirect_uri: `${process.env.API_URL}/gmail/verify`,
       // Include the state parameter to reduce the risk of CSRF attacks.
       state: state,
     });
@@ -460,15 +461,16 @@ export class GoogleSerivce {
     } catch (error) {
       this.logger.warn("Failed to parse state parameter");
     }
-
     try {
       tokens = (await this.oauth2Client.getToken(code)).tokens;
+      console.log(tokens);
       const oauth2 = await google.oauth2("v2");
       googleUserInfo = await oauth2.userinfo.get(
         {},
         { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
     } catch (error) {
+      console.log(error);
       this.logger.error("user did not authorize us");
       return { token: null };
     }
@@ -514,7 +516,6 @@ export class GoogleSerivce {
   }
 
   async renewWatch(connector: Connector) {
-  
     const credential = connector.credentials;
     const gmail = await google.gmail("v1");
     const tokens = JSON.parse(await decrypt(credential.tokens));

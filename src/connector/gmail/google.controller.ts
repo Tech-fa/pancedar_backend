@@ -26,6 +26,7 @@ export class GoogleController {
   private readonly logger = new Logger(GoogleController.name);
 
   @Get("oauth")
+  @Public()
   async getUrl(@Res() res, @Query("connectorId") connectorId?: string) {
     try {
       const { url } = await this.googleService.getGoogleAuth(connectorId);

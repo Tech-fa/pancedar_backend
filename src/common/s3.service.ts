@@ -38,6 +38,26 @@ export class S3Service implements FileService {
     }
   }
 
+  async getFileBuffer(name: string): Promise<Buffer | null> {
+    try {
+      const options = {
+        Bucket: this.configService.get('S3_BUCKET'),
+        Key: name,
+      };
+      const fileStream = (await this.s3.send(new GetObjectCommand(options)))
+        .Body as NodeJS.ReadableStream;
+      const chunks: Buffer[] = [];
+      return await new Promise((resolve, reject) => {
+        fileStream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        fileStream.on('error', reject);
+        fileStream.on('end', () => resolve(Buffer.concat(chunks)));
+      });
+    } catch (error) {
+      this.logger.error('error getting file buffer', error);
+      return null;
+    }
+  }
+
   async getFile(name: string): Promise<string> {
     try {
       var options = {
@@ -59,6 +79,16 @@ export class S3Service implements FileService {
       this.logger.error('error getting file', error);
       return '<h1>hi</h1>';
     }
+  }
+
+  async uploadText(key: string, text: string): Promise<string> {
+    await this.uploadToAWS({
+      Bucket: this.configService.get('S3_BUCKET'),
+      Key: key,
+      Body: Buffer.from(text, 'utf8'),
+      ContentType: 'text/plain; charset=utf-8',
+    });
+    return key;
   }
 
   async uploadFile(file: any, clientId: string) {

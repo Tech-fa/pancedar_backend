@@ -30,4 +30,7 @@ export class WorkflowEmailCategoryResource extends ClientBaseEntity {
 
   @Column({ name: "files", type: "json", nullable: true })
   files: string[];
+
+  @Column({ name: "all_text", type: "varchar", length: 500, nullable: true })
+  allText: string | null;
 }

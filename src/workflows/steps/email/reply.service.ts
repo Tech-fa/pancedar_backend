@@ -7,6 +7,7 @@ import { EmailAnalysisResult } from "./dto";
 import { WorkflowEmailCategory } from "../../../category/category.entity";
 import { Events } from "../../../queue/queue-constants";
 import { EmailWorkflowReplyPayload } from "../../../email-handler/dto";
+import { RagRetrievalService } from "../../../rag/rag-retrieval.service";
 
 @Injectable()
 export class ReplyEmailService {
@@ -17,6 +18,7 @@ export class ReplyEmailService {
     private readonly categoryService: CategoryService,
     private readonly llmService: LlmService,
     private readonly queuePublisher: QueuePublisher,
+    private readonly ragRetrievalService: RagRetrievalService,
   ) {}
 
   async runStep(
@@ -24,31 +26,18 @@ export class ReplyEmailService {
     category: WorkflowEmailCategory,
     analysis: EmailAnalysisResult,
   ): Promise<EmailWorkflowReplyPayload | null> {
-    let resources: {
-      id: string;
-      textResource: string | null;
-      links: string[];
-      files: string[];
-    }[] = [];
-
-    if (category?.resources?.length) {
-      resources = category.resources.map((r) => ({
-        id: r.id,
-        textResource: r.textResource,
-        links: r.links ?? [],
-        files: r.files ?? [],
-      }));
-    }
+    const hasResources = (category?.resources?.length ?? 0) > 0;
 
     const incoming = await this.usersService.findIncomingEmailById(
       incomingEmailId,
       ["connector"],
     );
-    if (!resources.length) {
+
+    if (!hasResources) {
       return null;
     }
 
-    const replyBody = await this.buildReplyBody(analysis, resources);
+    const replyBody = await this.buildReplyBody(analysis, category.id);
     const response = {
       incomingEmailId,
       replyTo: incoming.from,
@@ -66,27 +55,31 @@ export class ReplyEmailService {
 
   private async buildReplyBody(
     analysis: EmailAnalysisResult,
-    resources: {
-      id: string;
-      textResource: string | null;
-      links: string[];
-      files: string[];
-    }[],
+    categoryId: string,
   ): Promise<string> {
-    if (!resources.length) {
+    const query = [
+      analysis.summary,
+      ...(analysis.questions ?? []),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    let resourceBlock: string;
+    try {
+      const chunks = await this.ragRetrievalService.retrieve(categoryId, "category", query, 5);
+      if (chunks.length === 0) {
+        return analysis.summary || "Thank you for your message.";
+      }
+      resourceBlock = chunks
+        .map(
+          (c, i) =>
+            `[${i + 1}] (${c.sourceType}${c.sourceRef ? `: ${c.sourceRef}` : ""})\n${c.content}`,
+        )
+        .join("\n\n");
+    } catch (err) {
+      this.logger.error("RAG retrieval failed, falling back to summary", err);
       return analysis.summary || "Thank you for your message.";
     }
-
-    const resourceBlock = resources
-      .map((r, i) => {
-        const parts = [
-          r.textResource ? `Text: ${r.textResource}` : null,
-          (r.links?.length ?? 0) > 0 ? `Links: ${r.links.join(", ")}` : null,
-          (r.files?.length ?? 0) > 0 ? `Files: ${r.files.join(", ")}` : null,
-        ].filter(Boolean);
-        return `Resource ${i + 1}:\n${parts.join("\n")}`;
-      })
-      .join("\n\n");
 
     const prompt = `You are drafting a concise email reply to the sender.
 
