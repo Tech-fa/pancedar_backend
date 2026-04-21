@@ -7,15 +7,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { Connector } from "./connector.entity";
-import {
-  CreateConnectorDto,
-  UpdateConnectorDto,
-  ExecuteActionDto,
-  CreateConnectorActionInstanceDto,
-  UpdateConnectorActionInstanceDto,
-  InjectableFieldDto,
-  ConnectorStatus,
-} from "./dto";
+import { CreateConnectorDto, UpdateConnectorDto, ConnectorStatus } from "./dto";
 import { decrypt, encrypt } from "../util/helper-util";
 import { UserRequest } from "../permissions/dto";
 import {
@@ -37,7 +29,6 @@ export class ConnectorService {
   async addConnection(
     user: UserRequest,
     connectorTypeName: string,
-    name?: string,
   ): Promise<Connector> {
     const typeConfig = this.findTypeByName(connectorTypeName);
     if (!typeConfig) {
@@ -56,7 +47,6 @@ export class ConnectorService {
       status: typeConfig.oauthUrl
         ? ConnectorStatus.PENDING
         : ConnectorStatus.ACTIVE,
-      clientId: user.clientId,
       teamId: user.teamId,
       createdAt: now,
       updatedAt: now,
@@ -86,9 +76,11 @@ export class ConnectorService {
     });
   }
 
-  async findAll(user: UserRequest): Promise<Connector[]> {
-    return this.connectorRepo.find({
-      where: { clientId: user.clientId, teamId: user.teamId },
+  async findAll(
+    user: UserRequest,
+  ): Promise<Array<Connector & { disconnectUrl?: string }>> {
+    const rows = await this.connectorRepo.find({
+      where: { teamId: user.teamId },
       order: { createdAt: "DESC" },
       select: {
         id: true,
@@ -99,6 +91,11 @@ export class ConnectorService {
         connectorTypeId: true,
       },
     });
+    return rows.map((c) => {
+      const typeConfig = this.findTypeByName(c.connectorTypeId);
+      const disconnectUrl = typeConfig?.disconnectPath;
+      return { ...c, disconnectUrl };
+    });
   }
 
   async findConnectors(
@@ -107,25 +104,10 @@ export class ConnectorService {
   ): Promise<Connector[]> {
     return await this.connectorRepo.find({
       where: {
-        clientId: user.clientId,
         teamId: user.teamId,
         name: In(names),
       },
     });
-  }
-
-  async getCredentials(
-    connectorId: string,
-    clientId: string,
-  ): Promise<Record<string, any>> {
-    const connector = await this.connectorRepo.findOne({
-      where: { id: connectorId, clientId },
-    });
-    if (!connector) {
-      throw new NotFoundException("Connector not found");
-    }
-    const decrypted = await decrypt(connector.credentials);
-    return JSON.parse(decrypted);
   }
 
   async findOneById(id: string): Promise<Connector> {
@@ -141,17 +123,6 @@ export class ConnectorService {
   async saveConnector(connector: Connector): Promise<Connector> {
     return this.connectorRepo.save(connector);
   }
-  async findOne(clientId: string, id: string): Promise<Connector> {
-    const connector = await this.connectorRepo.findOne({
-      where: { id, clientId },
-      relations: ["connectorType", "connectorType.actions"],
-    });
-    if (!connector) {
-      throw new NotFoundException("Connector not found");
-    }
-
-    return connector;
-  }
 
   async create(user: UserRequest, dto: CreateConnectorDto): Promise<Connector> {
     if (Object.keys(connectorTypesConfig).includes(dto.connectorTypeId)) {
@@ -160,29 +131,23 @@ export class ConnectorService {
     if (!connectorTypesConfig.find((t) => t.name === dto.connectorTypeId)) {
       throw new BadRequestException("Connector type not found");
     }
-    console.log(dto);
     const now = Date.now();
     const connector = this.connectorRepo.create({
       name: dto.name.trim(),
       connectorTypeId: dto.connectorTypeId,
       credentials: {},
       status: dto.status ?? ConnectorStatus.ACTIVE,
-      clientId: user.clientId,
       teamId: user.teamId,
       createdAt: now,
       updatedAt: now,
     });
     const saved = await this.connectorRepo.save(connector);
-    return this.findOne(user.clientId, saved.id);
+    return this.findOneById(saved.id);
   }
 
-  async update(
-    clientId: string,
-    id: string,
-    dto: UpdateConnectorDto,
-  ): Promise<Connector> {
+  async update(id: string, dto: UpdateConnectorDto): Promise<Connector> {
     const connector = await this.connectorRepo.findOne({
-      where: { id, clientId },
+      where: { id },
     });
     if (!connector) {
       throw new NotFoundException("Connector not found");
@@ -194,12 +159,12 @@ export class ConnectorService {
 
     connector.updatedAt = Date.now();
     await this.connectorRepo.save(connector);
-    return this.findOne(clientId, id);
+    return this.findOneById(id);
   }
 
-  async delete(clientId: string, id: string): Promise<{ id: string }> {
+  async delete(id: string): Promise<{ id: string }> {
     const connector = await this.connectorRepo.findOne({
-      where: { id, clientId },
+      where: { id },
     });
     if (!connector) {
       throw new NotFoundException("Connector not found");

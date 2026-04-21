@@ -1,7 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { ClientBaseEntity } from '../client/client-base';
 @Entity()
-export class Otp extends ClientBaseEntity {
+export class Otp {
   @PrimaryGeneratedColumn()
   id: string;
 

@@ -74,6 +74,5 @@ export const CACHE_PREFIX = "permissions";
 export interface UserRequest {
   id: string;
   username: string;
-  clientId: string;
   teamId: string;
 }

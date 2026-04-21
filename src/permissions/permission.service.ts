@@ -15,9 +15,9 @@ import {
   UserRequest,
 } from "./dto";
 import { PermissionGroup } from "./permission-group.entity";
-import { Client } from "../client/client.entity";
 import { UserPermissionGroup } from "./user-permission-group.entity";
 import { v4 as uuidv4 } from "uuid";
+import { workflowConfigs } from "src/workflows/workflow-config";
 
 @Injectable()
 export class PermissionService {
@@ -40,7 +40,7 @@ export class PermissionService {
     actions: string[],
     teamId?: string,
   ): Promise<boolean> {
-    const cacheKey = `${CACHE_PREFIX}_client_${user.clientId}_user_${user.id}_team_${teamId}`;
+    const cacheKey = `${CACHE_PREFIX}_user_${user.id}`;
     let userPermissions = JSON.parse(
       await this.cacheService.getData(cacheKey),
     ) as {
@@ -48,7 +48,7 @@ export class PermissionService {
       permissions: { subject: string; action: string }[];
     }[];
     if (!userPermissions) {
-      const groups = await this.getUserPermissionGroups(user.id, user.clientId);
+      const groups = await this.getUserPermissionGroups(user.id);
       userPermissions = groups
         .map((group) => ({
           teamId: group.teamId,
@@ -81,12 +81,24 @@ export class PermissionService {
     const workflowSpecificPermissions = Object.values(permissionTree).filter(
       (p) => p.workflow_specific,
     );
-    const workflowNames = await this.permissionGroupRepository.query(
-      `SELECT DISTINCT name FROM workflows where team_id = '${teamId}'`,
-    );
+    const workflowNames =
+      (
+        await this.permissionGroupRepository.query(
+          `SELECT DISTINCT name FROM workflows where team_id = '${teamId}'`,
+        )
+      )
+        ?.map((w) => workflowConfigs[w.name].entitiesNeeded)
+        ?.flat() || [];
+    const filteredPermissions = workflowSpecificPermissions
+      .filter((p) => workflowNames.includes(p.subject))
+      .map((p) => p.subject);
     const returnedPermissions = {};
     Object.entries(permissionTree)
-      .filter(([key, value]) => !value.workflow_specific)
+      .filter(
+        ([key, value]) =>
+          !value.workflow_specific ||
+          filteredPermissions.includes(value.subject),
+      )
       .forEach(([key, value]) => {
         returnedPermissions[key] = value;
       });
@@ -95,11 +107,10 @@ export class PermissionService {
 
   async getUserPermissionGroups(
     userId: string,
-    clientId: string,
   ): Promise<UserPermissionGroup[]> {
     return await this.userPermissionGroupRepository.find({
-      where: { user: { id: userId, client: { id: clientId } } },
-      relations: ["permissionGroup", "user"],
+      where: { user: { id: userId } },
+      relations: ["permissionGroup", "user", "team"],
     });
   }
 
@@ -114,15 +125,10 @@ export class PermissionService {
     return [...subjects];
   }
 
-  async removeUserFromTeam(
-    userId: string,
-    clientId: string,
-    teamId: string,
-  ): Promise<void> {
+  async removeUserFromTeam(userId: string, teamId: string): Promise<void> {
     await this.userPermissionGroupRepository.delete({
       user: { id: userId },
       teamId,
-      clientId,
     });
   }
 
@@ -135,9 +141,6 @@ export class PermissionService {
         "userPermissionGroup.permissionGroup",
         "permissionGroup",
       )
-      .where("userPermissionGroup.clientId = :clientId", {
-        clientId: user.clientId,
-      })
       .andWhere("userPermissionGroup.teamId = :teamId", {
         teamId: user.teamId,
       })
@@ -170,7 +173,6 @@ export class PermissionService {
 
   async createPermissionGroup(
     createDto: PermissionGroupDto,
-    clientId: string,
   ): Promise<PermissionGroup> {
     const nonValidPermissions = createDto.permissions.filter((permission) => {
       if (
@@ -196,7 +198,6 @@ export class PermissionService {
     const group = {
       name: createDto.name,
       permissions: createDto.permissions,
-      client: { id: clientId } as Client,
       description: createDto.description,
       custom: true,
     };
@@ -206,10 +207,9 @@ export class PermissionService {
   async updatePermissionGroup(
     id: number,
     updateDto: PermissionGroupDto,
-    clientId: string,
   ): Promise<PermissionGroup> {
     const group = await this.permissionGroupRepository.findOne({
-      where: { id, clientId },
+      where: { id },
     });
     if (!group || !group.custom) {
       throw new NotFoundException(
@@ -238,7 +238,6 @@ export class PermissionService {
   }
 
   async getPermissionGroups(
-    clientId: string,
     name?: string,
   ): Promise<PermissionGroup[]> {
     const qb = this.permissionGroupRepository
@@ -248,7 +247,6 @@ export class PermissionService {
         "userPermissionGroups",
       )
       .leftJoinAndSelect("userPermissionGroups.user", "user")
-      .where("permissionGroup.clientId = :clientId", { clientId })
       .andWhere("permissionGroup.deleted = false")
       .andWhere("(user.id is null or user.deleted = false)")
       .select([
@@ -268,21 +266,15 @@ export class PermissionService {
     return await qb.getMany();
   }
 
-  async getPermissionGroupByName(
-    name: string,
-    clientId: string,
-  ): Promise<PermissionGroup> {
+  async getPermissionGroupByName(name: string): Promise<PermissionGroup> {
     return await this.permissionGroupRepository.findOne({
-      where: { name, clientId, deleted: false },
+      where: { name, deleted: false },
     });
   }
 
-  async getPermissionGroup(
-    id: number,
-    clientId: string,
-  ): Promise<PermissionGroup> {
+  async getPermissionGroup(id: number): Promise<PermissionGroup> {
     const group = await this.permissionGroupRepository.findOne({
-      where: { id, clientId, deleted: false },
+      where: { id, deleted: false },
       relations: [
         "userPermissionGroups",
         "userPermissionGroups.user",
@@ -316,14 +308,12 @@ export class PermissionService {
 
   async getAdminUsersOtherThan(
     userId: string,
-    clientId: string,
   ): Promise<User[]> {
     return await this.userPermissionGroupRepository
       .createQueryBuilder("upg")
       .innerJoin("upg.permissionGroup", "permissionGroup")
       .innerJoin("upg.user", "user")
       .select("DISTINCT user.id", "id")
-      .where("upg.clientId = :clientId", { clientId })
       .andWhere("user.deleted = false")
       .andWhere("user.id != :userId", { userId })
       .andWhere(
@@ -336,12 +326,11 @@ export class PermissionService {
       .getRawMany();
   }
 
-  async isUserAdmin(userId: string, clientId: string): Promise<boolean> {
+  async isUserAdmin(userId: string): Promise<boolean> {
     return await this.userPermissionGroupRepository
       .createQueryBuilder("upg")
       .innerJoin("upg.permissionGroup", "permissionGroup")
       .innerJoin("upg.user", "user")
-      .where("upg.clientId = :clientId", { clientId })
       .andWhere("user.id = :userId", { userId })
       .andWhere("user.deleted = false")
       .andWhere(
@@ -354,17 +343,17 @@ export class PermissionService {
       .getExists();
   }
 
-  async deletePermissionGroup(id: number, clientId: string): Promise<void> {
+  async deletePermissionGroup(id: number): Promise<void> {
     const userPermissionGroupCount = await this.userPermissionGroupRepository.count(
       {
-        where: { permissionGroup: { id, client: { id: clientId } } },
+        where: { permissionGroup: { id } },
       },
     );
     if (userPermissionGroupCount > 0) {
       throw new BadRequestException("Permission group is still in use");
     }
     await this.permissionGroupRepository.update(
-      { id, client: { id: clientId } },
+      { id },
       {
         deleted: true,
         name: `${uuidv4()}`,
@@ -374,7 +363,6 @@ export class PermissionService {
 
   async setUserPermissionGroups(
     userId: string,
-    clientId: string,
     body: SetUserPermissionGroupsDto,
   ): Promise<void> {
     const assignments = body.assignments ?? [];
@@ -382,7 +370,7 @@ export class PermissionService {
 
     if (allGroupIds.length) {
       const groupsCount = await this.permissionGroupRepository.count({
-        where: { id: In(allGroupIds), clientId, deleted: false },
+        where: { id: In(allGroupIds), deleted: false },
       });
 
       if (groupsCount !== allGroupIds.length) {
@@ -394,14 +382,12 @@ export class PermissionService {
 
     await this.userPermissionGroupRepository.delete({
       user: { id: userId },
-      clientId,
     });
 
     const recordsToSave = assignments
       .flatMap((assignment) =>
         [...new Set(assignment.groupIds)].map((groupId) => ({
           user: { id: userId } as User,
-          client: { id: clientId } as Client,
           permissionGroup: { id: groupId } as PermissionGroup,
           teamId: assignment.teamId,
         })),
@@ -413,7 +399,7 @@ export class PermissionService {
     }
 
     await this.cacheService.evictData(
-      `${CACHE_PREFIX}_client_${clientId}_user_${userId}`,
+      `${CACHE_PREFIX}_user_${userId}`,
     );
   }
 }

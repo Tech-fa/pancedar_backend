@@ -14,3 +14,9 @@ export interface EmailWorkflowReplyPayload {
   subject: string;
   replyBody: string;
 }
+
+export interface GmailWorkflowReplyPayload {
+  incomingEmailId: string;
+  subject: string;
+  replyBody: string;
+}

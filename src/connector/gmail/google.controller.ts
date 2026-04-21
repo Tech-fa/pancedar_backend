@@ -6,6 +6,7 @@ import {
   Logger,
   Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -19,9 +20,7 @@ import { formatResponse } from "../../util/helper-util";
 
 @Controller("gmail")
 export class GoogleController {
-  constructor(
-    private readonly googleService: GoogleSerivce,
-  ) {}
+  constructor(private readonly googleService: GoogleSerivce) {}
 
   private readonly logger = new Logger(GoogleController.name);
 
@@ -45,7 +44,7 @@ export class GoogleController {
       this.logger,
       this.googleService.getGoogleAuth(req.user.username),
       res,
-      `getting auth url for adding inbox`
+      `getting auth url for adding inbox`,
     );
   }
 
@@ -54,7 +53,7 @@ export class GoogleController {
   async verifyCode(
     @Res() res,
     @Query("code") code: string,
-    @Query("state") state?: string
+    @Query("state") state?: string,
   ) {
     await this.googleService.verifyCode(code, state);
     res.send(
@@ -63,22 +62,18 @@ export class GoogleController {
           window.opener.postMessage({ type: 'AUTH_SUCCESS'}, '*');
         }
         window.close();
-      </script></body></html>`
+      </script></body></html>`,
     );
   }
 
   // Delete credential (disconnect inbox)
-  @Delete("connectors/:id")
-  async deleteCredential(
-    @Res() res,
-    @Req() req,
-    @Param("id") connectorId: string
-  ) {
+  @Post("disconnect")
+  async disconnectConnector(@Res() res, @Body() body: { connectorId: string }) {
     return formatResponse(
       this.logger,
-      this.googleService.disconnectConnector(connectorId),
+      this.googleService.disconnectConnector(body.connectorId),
       res,
-      "disconnecting inbox"
+      "disconnecting inbox",
     );
   }
 }

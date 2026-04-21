@@ -7,12 +7,13 @@ export const workflowConditionSources = {
 
 export const workflowConfigs = {
   "email-assistant": {
-    description: "Email assistant that replies to emails based on the context of the email and the available resources of your set categories",
+    description:
+      "Email assistant that replies to emails based on the context of the email and the available resources of your set categories",
     steps: ["Categorize Email", "Reply Email"],
     connectorsNeeded: ["Gmail"],
     triggerQueue: Events.PROCESS_INCOMING_EMAIL,
     processQueue: Events.EMAIL_ASSISTANT,
-    entitiesNeeded: ["UserIncomingEmail", "WorkflowEmailCategory"],
+    entitiesNeeded: ["email_workflow_categories", "incoming_emails"],
   },
 };
 
@@ -25,6 +26,7 @@ export const workflowStepConfigs = {
     fields: [
       {
         label: "Approve before sending",
+        name: "approveBeforeSending",
         type: "boolean",
         required: true,
       },

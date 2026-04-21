@@ -8,15 +8,13 @@ import {
   Res,
   Req,
   Logger,
-  UseInterceptors,
   Put,
   Query,
 } from "@nestjs/common";
 import { PermissionService } from "./permission.service";
-import { PermissionGroupDto, SetUserPermissionGroupsDto } from "./dto";
+import { PermissionGroupDto } from "./dto";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
-import { Public } from "../util/constants";
 import { permissionPermission } from "./permissions";
 @Controller("permissions")
 export class PermissionController {
@@ -25,11 +23,10 @@ export class PermissionController {
   constructor(private readonly permissionService: PermissionService) {}
 
   @Get()
-  @Public()
-  async getAllPermissions(@Res() res: Response) {
+  async getAllPermissions(@Res() res: Response, @Req() req) {
     return formatResponse(
       this.logger,
-      this.permissionService.getAllPermissions(),
+      this.permissionService.getAllPermissions(req.user.teamId),
       res,
       "All permissions fetched successfully",
     );
@@ -54,10 +51,7 @@ export class PermissionController {
   async getPermissionGroups(@Res() res: Response, @Req() req) {
     return formatResponse(
       this.logger,
-      this.permissionService.getPermissionGroups(
-        req.user.clientId,
-        req.query.name,
-      ),
+      this.permissionService.getPermissionGroups(req.query.name),
       res,
       "Permission groups fetched successfully",
     );
@@ -75,7 +69,7 @@ export class PermissionController {
   ) {
     return formatResponse(
       this.logger,
-      this.permissionService.getPermissionGroup(id, req.user.clientId),
+      this.permissionService.getPermissionGroup(id),
       res,
       "Permission group fetched successfully",
     );
@@ -95,7 +89,6 @@ export class PermissionController {
       this.logger,
       this.permissionService.createPermissionGroup(
         createDto,
-        req.user.clientId,
       ),
       res,
       "Permission group created successfully",
@@ -118,7 +111,6 @@ export class PermissionController {
       this.permissionService.updatePermissionGroup(
         id,
         updateDto,
-        req.user.clientId,
       ),
       res,
       "Permission group updated successfully",
@@ -137,7 +129,7 @@ export class PermissionController {
   ) {
     return formatResponse(
       this.logger,
-      this.permissionService.getUserPermissionGroups(userId, req.user.clientId),
+      this.permissionService.getUserPermissionGroups(userId),
       res,
       "User permissions fetched successfully",
     );
@@ -155,7 +147,7 @@ export class PermissionController {
   ) {
     return formatResponse(
       this.logger,
-      this.permissionService.deletePermissionGroup(id, req.user.clientId),
+      this.permissionService.deletePermissionGroup(id),
       res,
       `Permission group deleted successfully with id ${id}`,
     );

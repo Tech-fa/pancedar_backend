@@ -26,7 +26,7 @@ export class ReplyEmailService {
     category: WorkflowEmailCategory,
     analysis: EmailAnalysisResult,
   ): Promise<EmailWorkflowReplyPayload | null> {
-    const hasResources = (category?.resources?.length ?? 0) > 0;
+    const hasResources = !!category?.resource;
 
     const incoming = await this.usersService.findIncomingEmailById(
       incomingEmailId,
@@ -37,7 +37,11 @@ export class ReplyEmailService {
       return null;
     }
 
-    const replyBody = await this.buildReplyBody(analysis, category.id);
+    const replyBody = await this.buildReplyBody(
+      analysis,
+      category.id,
+      category.teamId,
+    );
     const response = {
       incomingEmailId,
       replyTo: incoming.from,
@@ -56,24 +60,30 @@ export class ReplyEmailService {
   private async buildReplyBody(
     analysis: EmailAnalysisResult,
     categoryId: string,
+    teamId: string,
   ): Promise<string> {
-    const query = [
-      analysis.summary,
-      ...(analysis.questions ?? []),
-    ]
+    const query = [analysis.summary, ...(analysis.questions ?? [])]
       .filter(Boolean)
       .join("\n");
 
     let resourceBlock: string;
     try {
-      const chunks = await this.ragRetrievalService.retrieve(categoryId, "category", query, 5);
+      const chunks = await this.ragRetrievalService.retrieve(
+        categoryId,
+        "category",
+        teamId,
+        query,
+        5,
+      );
       if (chunks.length === 0) {
         return analysis.summary || "Thank you for your message.";
       }
       resourceBlock = chunks
         .map(
           (c, i) =>
-            `[${i + 1}] (${c.sourceType}${c.sourceRef ? `: ${c.sourceRef}` : ""})\n${c.content}`,
+            `[${i + 1}] (${c.sourceType}${
+              c.sourceRef ? `: ${c.sourceRef}` : ""
+            })\n${c.content}`,
         )
         .join("\n\n");
     } catch (err) {

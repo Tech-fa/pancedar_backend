@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import * as crypto from "crypto";
-import { OAuth2Client } from "google-auth-library";
+import { Credentials, OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
 
 import { QueuePublisher } from "../../queue/queue.publisher";
@@ -17,6 +17,7 @@ import { UsersService } from "../../user/user.service";
 import { ConnectorService } from "../connector.service";
 import { ConnectorStatus } from "../dto";
 import { Connector } from "../connector.entity";
+import { GmailWorkflowReplyPayload } from "../../email-handler/dto";
 
 @Injectable()
 export class GoogleSerivce {
@@ -72,6 +73,8 @@ export class GoogleSerivce {
           message.ack();
           return;
         }
+      } else {
+        newCredential = credential;
       }
 
       const tokens = JSON.parse(await decrypt(newCredential.tokens));
@@ -135,6 +138,19 @@ export class GoogleSerivce {
           msgId,
           gmail,
         );
+
+        const senderMatch = (emailData.from || "").match(/<([^>]+)>/);
+        const senderEmail = (senderMatch?.[1] || emailData.from || "")
+          .trim()
+          .toLowerCase();
+        const ownEmail = (inboxEmail || "").trim().toLowerCase();
+
+        if (senderEmail === ownEmail) {
+          this.logger.log(
+            `Skipping own outgoing message ${msgId} for ${inboxEmail}`,
+          );
+          continue;
+        }
 
         // Save incoming email to database
         const savedEmail = await this.userService.saveIncomingEmail({
@@ -355,9 +371,9 @@ export class GoogleSerivce {
     connector: Connector,
   ): Promise<string | null> {
     try {
-      const credential = JSON.parse(await decrypt(connector.credentials));
+      const credential = connector.credentials;
       // Check if token needs renewal
-      let newCredential = null;
+      let newCredential = credential;
       if (aboutToExpire(credential.expiryDate)) {
         newCredential = await this.renewTokenForConnector(connector);
         if (!newCredential) {
@@ -373,6 +389,84 @@ export class GoogleSerivce {
       );
       return null;
     }
+  }
+
+  async replyToIncomingEmail(
+    payload: GmailWorkflowReplyPayload,
+  ): Promise<void> {
+    const incomingEmail = await this.userService.findIncomingEmailById(
+      payload.incomingEmailId,
+      ["connector", "workflowRun", "workflowRun.workflow"],
+    );
+    if (!incomingEmail) {
+      throw new BadRequestException(
+        `Incoming email ${payload.incomingEmailId} not found`,
+      );
+    }
+    if (!incomingEmail.connector) {
+      throw new BadRequestException(
+        `Incoming email ${payload.incomingEmailId} has no connector`,
+      );
+    }
+    if (
+      (incomingEmail.connector.connectorTypeId || "").toLowerCase() !== "gmail"
+    ) {
+      throw new BadRequestException(
+        `Connector type "${incomingEmail.connector.connectorTypeId}" is not Gmail`,
+      );
+    }
+
+    const accessToken = await this.getAccessTokenForConnector(
+      incomingEmail.connector,
+    );
+    if (!accessToken) {
+      throw new BadRequestException(
+        `No valid access token for connector ${incomingEmail.connectorId}`,
+      );
+    }
+    const gmail = google.gmail("v1");
+    const originalMessage = await gmail.users.messages.get(
+      { userId: "me", id: incomingEmail.messageId, format: "metadata" },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    const headers = originalMessage.data.payload?.headers || [];
+    const messageIdHeader =
+      headers.find((h) => h.name?.toLowerCase() === "message-id")?.value ||
+      incomingEmail.messageId;
+    const threadId = originalMessage.data.threadId;
+    const replyToAddress =
+      headers.find((h) => h.name?.toLowerCase() === "reply-to")?.value ||
+      incomingEmail.from;
+
+    const mime = [
+      `To: ${replyToAddress}`,
+      `Subject: ${payload.subject}`,
+      `In-Reply-To: ${messageIdHeader}`,
+      `References: ${messageIdHeader}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "",
+      payload.replyBody,
+    ].join("\r\n");
+    const raw = Buffer.from(mime)
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    await gmail.users.messages.send(
+      {
+        userId: "me",
+        requestBody: {
+          raw,
+          threadId: threadId || undefined,
+        },
+      },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    this.logger.log(
+      `Sent Gmail workflow reply for incoming email ${payload.incomingEmailId}`,
+    );
   }
 
   async getGoogleAuth(connectorId?: string) {
@@ -420,6 +514,7 @@ export class GoogleSerivce {
       );
       credential.expiryDate = tokens.credentials.expiry_date;
       await this.connectorService.saveConnector(connector);
+      this.logger.log(`Renewed token for connector ${connector.id}`);
       return credential;
     } catch (err) {
       this.logger.error(
@@ -449,7 +544,7 @@ export class GoogleSerivce {
 
   async verifyCode(code: string, state?: string) {
     let googleUserInfo;
-    let tokens;
+    let tokens: Credentials;
     let connectorId: string | null = null;
 
     // Extract user email from state if provided
@@ -463,21 +558,18 @@ export class GoogleSerivce {
     }
     try {
       tokens = (await this.oauth2Client.getToken(code)).tokens;
-      console.log(tokens);
       const oauth2 = await google.oauth2("v2");
       googleUserInfo = await oauth2.userinfo.get(
         {},
         { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
     } catch (error) {
-      console.log(error);
-      this.logger.error("user did not authorize us");
+      this.logger.error("user did not authorize us", error.stack);
       return { token: null };
     }
 
     const inboxEmail = googleUserInfo.data.email;
     const gmail = await google.gmail("v1");
-    let succeeded = true;
     try {
       await gmail.users.watch(
         {
@@ -494,7 +586,6 @@ export class GoogleSerivce {
       this.logger.log("watcher done");
     } catch (error) {
       this.logger.error(`error for ${inboxEmail}`, error);
-      succeeded = false;
     }
 
     const connector = await this.connectorService.findOneById(connectorId);
@@ -511,7 +602,10 @@ export class GoogleSerivce {
           refresh_token: tokens.refresh_token,
         }),
       ),
+      expiryDate: tokens.expiry_date,
+      watcherDate: new Date().valueOf(),
     };
+    connector.primaryIdentifier = inboxEmail;
     await this.connectorService.saveConnector(connector);
   }
 
@@ -554,8 +648,8 @@ export class GoogleSerivce {
       );
       // Continue with deletion even if stopWatch fails
     }
-    connector.status = ConnectorStatus.INACTIVE;
-    await this.connectorService.saveConnector(connector);
+    await this.userService.deleteIncomingEmails(connector.id);
+    await this.connectorService.delete(connector.id);
     return connector;
   }
 }

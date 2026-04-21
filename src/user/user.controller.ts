@@ -17,7 +17,7 @@ import { formatResponse } from "../util/helper-util";
 import { UsersService } from "./user.service";
 import { hasPermission } from "../authentication/permission.decorator";
 import { UserDTO } from "./user.dto";
-import { userPermission } from "../permissions/permissions";
+import { incomingEmailsPermission, userPermission } from "../permissions/permissions";
 
 @Controller("users")
 export class UserController {
@@ -30,11 +30,10 @@ export class UserController {
   async getUsers(
     @Res() res: Response,
     @Req() req,
-    @Query("userType") userType?: string,
   ) {
     return formatResponse(
       this.logger,
-      this.userService.findAllBySearch(req.query.name, req.user, userType),
+      this.userService.findAllBySearch(req.query.name, req.user),
       res,
       "Users fetched successfully",
     );
@@ -45,7 +44,7 @@ export class UserController {
     return formatResponse(
       this.logger,
       this.userService.findBy(
-        { id: req.user.id, clientId: req.user.clientId },
+        { id: req.user.id },
         [],
         {
           id: true,
@@ -66,7 +65,7 @@ export class UserController {
     return formatResponse(
       this.logger,
       this.userService.findBy(
-        { id, clientId: req.user.clientId },
+        { id },
         ["permissionGroups", "createdBy", "skills", "skills.skill"],
         {
           id: true,
@@ -77,7 +76,6 @@ export class UserController {
           isActive: true,
           createdAt: true,
           deleted: true,
-          clientId: true,
           verifiedAt: true,
           failedLogins: true,
           createdBy: {
@@ -90,6 +88,21 @@ export class UserController {
       ),
       res,
       "User fetched successfully",
+    );
+  }
+
+  @Get("incoming-emails/:id/review")
+  @hasPermission({ subject: incomingEmailsPermission.subject, actions: ["read"] })
+  async getIncomingEmailReview(
+    @Res() res: Response,
+    @Req() req,
+    @Param("id") id: string,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.userService.getIncomingEmailReview(id, req.user),
+      res,
+      "Incoming email review fetched successfully",
     );
   }
 
@@ -144,7 +157,7 @@ export class UserController {
   ) {
     return formatResponse(
       this.logger,
-      this.userService.inactiveUser(id, req.user.clientId, action),
+      this.userService.inactiveUser(id, action),
       res,
       "User inactivated successfully",
     );
@@ -154,7 +167,7 @@ export class UserController {
   async deleteUser(@Res() res: Response, @Req() req, @Param("id") id: string) {
     return formatResponse(
       this.logger,
-      this.userService.deleteUser(id, req.user.clientId),
+      this.userService.deleteUser(id),
       res,
       "User deleted successfully",
     );

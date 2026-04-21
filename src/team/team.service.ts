@@ -16,7 +16,6 @@ import {
 import { PaginatedResponse } from "../common/pagination.dto";
 import { UserRequest } from "../permissions/dto";
 import { PermissionService } from "../permissions/permission.service";
-import { UserType } from "../user/user.entity";
 
 @Injectable()
 export class TeamService {
@@ -32,7 +31,7 @@ export class TeamService {
   async getTeamIdsForUser(user: UserRequest): Promise<string[]> {
     return (
       await this.teamMemberRepository.query(
-        `select t.id  as id from team_members tm join teams t on tm.team_id = t.id where tm.user_id = '${user.id}' and tm.client_id = '${user.clientId}'`,
+        `select t.id  as id from team_members tm join teams t on tm.team_id = t.id where tm.user_id = '${user.id}'`,
       )
     ).map((t) => t.id) as string[];
   }
@@ -43,7 +42,11 @@ export class TeamService {
     });
   }
 
-  async updateTeamMember(userId: string, teamId: string, data: Partial<TeamMember>): Promise<TeamMember> {
+  async updateTeamMember(
+    userId: string,
+    teamId: string,
+    data: Partial<TeamMember>,
+  ): Promise<TeamMember> {
     const teamMember = await this.getTeamMember(userId, teamId);
     if (!teamMember) {
       throw new NotFoundException("Team member not found");
@@ -57,7 +60,6 @@ export class TeamService {
       .createQueryBuilder("team")
       .leftJoinAndSelect("team.members", "member")
       .leftJoinAndSelect("member.user", "u")
-      .where("team.clientId = :clientId", { clientId: user.clientId })
       .andWhere("team.name = :name", { name: "Default Team" })
       .andWhere("member.userId = :userId", { userId: user.id })
       .getOne();
@@ -66,7 +68,6 @@ export class TeamService {
         .createQueryBuilder("team")
         .leftJoinAndSelect("team.members", "member")
         .leftJoinAndSelect("member.user", "u")
-        .where("team.clientId = :clientId", { clientId: user.clientId })
         .andWhere("member.userId = :userId", { userId: user.id })
         .getOne();
     }
@@ -81,7 +82,6 @@ export class TeamService {
 
     const qb = this.teamRepository
       .createQueryBuilder("team")
-      .where("team.clientId = :clientId", { clientId: user.clientId })
       .andWhere("team.id IN (:...teamIds)", {
         teamIds: await this.getTeamIdsForUser(user),
       });
@@ -114,10 +114,13 @@ export class TeamService {
     };
   }
 
-  async findOne(clientId: string, id: string): Promise<Team> {
+  async findOne(id: string, user: UserRequest): Promise<Team> {
     const team = await this.teamRepository
       .createQueryBuilder("team")
-      .where("team.id = :id AND team.clientId = :clientId", { id, clientId })
+      .where("team.id = :id", { id })
+      .andWhere("team.id IN (:...teamIds)", {
+        teamIds: await this.getTeamIdsForUser(user),
+      })
       .leftJoinAndSelect("team.members", "member")
       .leftJoinAndSelect("member.user", "u")
       .leftJoinAndSelect("u.permissionGroups", "pg")
@@ -145,10 +148,10 @@ export class TeamService {
     return team;
   }
 
-  async create(clientId: string, dto: CreateTeamDto): Promise<Team> {
+  async create(dto: CreateTeamDto): Promise<Team> {
     const name = dto.name.trim();
     const existing = await this.teamRepository.findOne({
-      where: { clientId, name },
+      where: { name },
     });
 
     if (existing) {
@@ -158,7 +161,6 @@ export class TeamService {
     const now = Date.now();
     const team = this.teamRepository.create({
       name,
-      clientId,
       createdAt: now,
       updatedAt: now,
     });
@@ -166,13 +168,9 @@ export class TeamService {
     return this.teamRepository.save(team);
   }
 
-  async update(
-    clientId: string,
-    id: string,
-    dto: UpdateTeamDto,
-  ): Promise<Team> {
+  async update(id: string, dto: UpdateTeamDto): Promise<Team> {
     const team = await this.teamRepository.findOne({
-      where: { id, clientId },
+      where: { id },
     });
 
     if (!team) {
@@ -182,7 +180,7 @@ export class TeamService {
     if (dto.name?.trim()) {
       const name = dto.name.trim();
       const duplicate = await this.teamRepository.findOne({
-        where: { clientId, name },
+        where: { name },
       });
 
       if (duplicate && duplicate.id !== team.id) {
@@ -197,9 +195,9 @@ export class TeamService {
     return this.teamRepository.save(team);
   }
 
-  async delete(clientId: string, id: string): Promise<{ id: string }> {
+  async delete(id: string): Promise<{ id: string }> {
     const team = await this.teamRepository.findOne({
-      where: { id, clientId },
+      where: { id },
     });
 
     if (!team) {
@@ -210,13 +208,9 @@ export class TeamService {
     return { id };
   }
 
-  async addMember(
-    clientId: string,
-    teamId: string,
-    dto: AddTeamMemberDto,
-  ): Promise<TeamMember> {
+  async addMember(teamId: string, dto: AddTeamMemberDto): Promise<TeamMember> {
     const team = await this.teamRepository.findOne({
-      where: { id: teamId, clientId },
+      where: { id: teamId },
     });
     if (!team) {
       throw new NotFoundException("Team not found");
@@ -232,21 +226,14 @@ export class TeamService {
       const member = this.teamMemberRepository.create({
         team: { id: teamId },
         user: { id: dto.userId },
-        clientId,
         createdAt: Date.now(),
       });
 
       existing = await this.teamMemberRepository.save(member);
     }
 
-    const userType = (
-      await this.teamRepository.query(
-        `select user_type from users where id = '${dto.userId}'`,
-      )
-    )[0].user_type;
     const existingAssignments = await this.permissionService.getUserPermissionGroups(
       dto.userId,
-      clientId,
     );
 
     const mergedAssignmentsMap = existingAssignments.reduce(
@@ -258,19 +245,10 @@ export class TeamService {
       },
       {} as Record<string, number[]>,
     );
-    if (userType === UserType.PILOT) {
-      const pilotGroup = await this.permissionService.getPermissionGroupByName(
-        "Drone Pilot",
-        clientId,
-      );
-      if (pilotGroup) {
-        mergedAssignmentsMap[teamId] = [pilotGroup.id];
-      }
-    } else {
-      mergedAssignmentsMap[teamId] = [...new Set(dto.groupIds)];
-    }
 
-    await this.permissionService.setUserPermissionGroups(dto.userId, clientId, {
+    mergedAssignmentsMap[teamId] = [...new Set(dto.groupIds)];
+
+    await this.permissionService.setUserPermissionGroups(dto.userId, {
       assignments: Object.entries(mergedAssignmentsMap).map(
         ([existingTeamId, groupIds]) => ({
           teamId: existingTeamId,
@@ -282,12 +260,11 @@ export class TeamService {
   }
 
   async removeMember(
-    clientId: string,
     teamId: string,
     userId: string,
   ): Promise<{ teamId: string; userId: string }> {
     const team = await this.teamRepository.findOne({
-      where: { id: teamId, clientId },
+      where: { id: teamId },
     });
     if (!team) {
       throw new NotFoundException("Team not found");
@@ -297,24 +274,22 @@ export class TeamService {
       where: {
         team: { id: teamId },
         user: { id: userId },
-        clientId,
       },
     });
     if (!member) {
       throw new NotFoundException("Team membership not found");
     }
-    const isAdmin = await this.permissionService.isUserAdmin(userId, clientId);
+    const isAdmin = await this.permissionService.isUserAdmin(userId);
     if (isAdmin) {
       throw new BadRequestException("cannot remove an admin user from a team");
     }
-    await this.permissionService.removeUserFromTeam(userId, clientId, teamId);
+    await this.permissionService.removeUserFromTeam(userId, teamId);
 
     await this.teamMemberRepository.remove(member);
     return { teamId, userId };
   }
 
   async setTeams(
-    clientId: string,
     dto: SetUserTeamsDto,
   ): Promise<{ userId: string; teamIds: string[] }> {
     const assignments = dto.assignments ?? [];
@@ -322,15 +297,11 @@ export class TeamService {
       ...new Set(assignments.map((assignment) => assignment.teamId)),
     ];
 
-    const isAdmin = await this.permissionService.isUserAdmin(
-      dto.userId,
-      clientId,
-    );
+    const isAdmin = await this.permissionService.isUserAdmin(dto.userId);
 
     if (isAdmin) {
       const otherAdminUsers = await this.permissionService.getAdminUsersOtherThan(
         dto.userId,
-        clientId,
       );
 
       if (otherAdminUsers.length === 0) {
@@ -342,7 +313,7 @@ export class TeamService {
 
     if (teamIds.length > 0) {
       const validTeamsCount = await this.teamRepository.count({
-        where: { clientId, id: In(teamIds) },
+        where: { id: In(teamIds) },
       });
       if (validTeamsCount !== teamIds.length) {
         throw new BadRequestException("One or more teams are invalid");
@@ -351,7 +322,6 @@ export class TeamService {
 
     const existingMemberships = await this.teamMemberRepository.find({
       where: {
-        clientId,
         user: { id: dto.userId },
       },
     });
@@ -366,7 +336,6 @@ export class TeamService {
 
     if (teamsToRemove.length > 0) {
       await this.teamMemberRepository.delete({
-        clientId,
         user: { id: dto.userId },
         teamId: In(teamsToRemove),
       });
@@ -378,13 +347,12 @@ export class TeamService {
         teamsToAdd.map((teamId) => ({
           team: { id: teamId },
           user: { id: dto.userId },
-          clientId,
           createdAt,
         })),
       );
     }
 
-    await this.permissionService.setUserPermissionGroups(dto.userId, clientId, {
+    await this.permissionService.setUserPermissionGroups(dto.userId, {
       assignments: assignments.map((assignment) => ({
         teamId: assignment.teamId,
         groupIds: assignment.groupIds,
@@ -395,18 +363,15 @@ export class TeamService {
   }
 
   async setAsAdmin(
-    clientId: string,
     userId: string,
   ): Promise<{ userId: string; teamIds: string[]; groupId: number }> {
     const teams = await this.teamRepository.find({
-      where: { clientId },
       select: { id: true },
     });
     const teamIds = teams.map((team) => team.id);
 
     const adminGroup = await this.permissionService.getPermissionGroupByName(
       "Admin",
-      clientId,
     );
 
     if (!adminGroup) {
@@ -414,7 +379,7 @@ export class TeamService {
     }
 
     const existingMemberships = await this.teamMemberRepository.find({
-      where: { clientId, user: { id: userId } },
+      where: { user: { id: userId } },
       select: { teamId: true },
     });
     const existingTeamIds = existingMemberships.map(
@@ -430,13 +395,12 @@ export class TeamService {
         teamsToAdd.map((teamId) => ({
           team: { id: teamId },
           user: { id: userId },
-          clientId,
           createdAt,
         })),
       );
     }
 
-    await this.permissionService.setUserPermissionGroups(userId, clientId, {
+    await this.permissionService.setUserPermissionGroups(userId, {
       assignments: teamIds.map((teamId) => ({
         teamId,
         groupIds: [adminGroup.id],

@@ -1,7 +1,4 @@
-export enum PermissionScope {
-  CLIENT = "client",
-  ORG_UNIT = "org-unit",
-}
+
 export enum PermissionEnum {
   CREATE = "create",
   READ = "read",
@@ -47,13 +44,7 @@ export const cronJobPermission = {
   service_tag: "cron_jobs",
   base_route: "cron-jobs",
 };
-export const clientPermission = {
-  subject: "clients",
-  label: "Client",
-  actions: actions,
-  service_tag: "client",
-  adminOnly: true,
-};
+
 export const userPermission = {
   subject: "users",
   label: "User",
@@ -154,6 +145,7 @@ export const teamPermission = {
   actions: actions,
   service_tag: "teams",
   base_route: "teams",
+  adminOnly: true,
 };
 
 export const workflowPermission = {
@@ -170,7 +162,14 @@ export const emailWorkflowCategoryPermission = {
   actions: actions,
   service_tag: "workflows",
   base_route: "email-categories",
-  workflow_specific: true
+  workflow_specific: true,
+};
+export const incomingEmailsPermission = {
+  subject: "incoming_emails",
+  label: "Incoming Email",
+  actions: actions,
+  service_tag: "incoming_emails",
+  base_route: "incoming-emails",
 };
 
 export const connectorPermission = {
@@ -207,7 +206,8 @@ export const permissions: {
   workflowPermission,
   emailWorkflowCategoryPermission,
   teamPermission,
-  connectorPermission
+  connectorPermission,
+  incomingEmailsPermission,
 };
 
 export const permissionTree: {
@@ -218,6 +218,7 @@ export const permissionTree: {
   emailWorkflowCategoryPermission,
   workflowPermission,
   connectorPermission,
+  incomingEmailsPermission,
 };
 
 export const defaultPermissionGroups = [

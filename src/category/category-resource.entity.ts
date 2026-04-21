@@ -6,14 +6,17 @@ import {
   PrimaryGeneratedColumn,
 } from "typeorm";
 import { WorkflowEmailCategory } from "./category.entity";
-import { ClientBaseEntity } from "../client/client-base";
 
 @Entity("workflow_email_category_resources")
-export class WorkflowEmailCategoryResource extends ClientBaseEntity {
+export class WorkflowEmailCategoryResource {
+  constructor(data: Partial<WorkflowEmailCategoryResource>) {
+    Object.assign(this, data);
+  }
+
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @ManyToOne(() => WorkflowEmailCategory, (c) => c.resources, {
+  @ManyToOne(() => WorkflowEmailCategory, (c) => c.resource, {
     onDelete: "CASCADE",
   })
   @JoinColumn({ name: "category_id" })

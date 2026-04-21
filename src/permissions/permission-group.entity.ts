@@ -4,22 +4,20 @@ import {
   Column,
   Unique,
   OneToMany,
-} from 'typeorm';
-import { PermissionScope } from './permissions';
-import { PermissionsDTO } from './dto';
-import { ClientBaseEntity } from '../client/client-base';
-import { UserPermissionGroup } from './user-permission-group.entity';
+} from "typeorm";
+import { PermissionsDTO } from "./dto";
+import { UserPermissionGroup } from "./user-permission-group.entity";
 
-@Entity('permission_groups')
-@Unique(['client', 'name'])
-export class PermissionGroup extends ClientBaseEntity {
+@Entity("permission_groups")
+@Unique(["name"])
+export class PermissionGroup {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column()
   name: string;
 
-  @Column({ type: 'json' })
+  @Column({ type: "json" })
   permissions: PermissionsDTO[];
 
   @Column({ default: false })
@@ -34,6 +32,6 @@ export class PermissionGroup extends ClientBaseEntity {
   )
   userPermissionGroups: UserPermissionGroup[];
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   description: string;
 }

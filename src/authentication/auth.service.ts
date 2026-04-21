@@ -6,8 +6,6 @@ import { UsersService } from "../user/user.service";
 import { User } from "../user/user.entity";
 import { RegisterDTO, UserDTO } from "../user/user.dto";
 import { Otp } from "../user/otp.entity";
-import { ClientService } from "../client/client.service";
-import { Client } from "../client/client.entity";
 import { PermissionGroup } from "../permissions/permission-group.entity";
 import { defaultPermissionGroups } from "../permissions/permissions";
 import { QueuePublisher } from "../queue/queue.publisher";
@@ -22,7 +20,6 @@ import { v4 as uuidv4 } from "uuid";
 export class AuthService {
   constructor(
     private readonly userService: UsersService,
-    private readonly clientService: ClientService,
     private jwtService: JwtService,
     @InjectRepository(Otp)
     private otpRepository: Repository<Otp>,
@@ -41,7 +38,6 @@ export class AuthService {
       changes: {},
       action: "LOGIN",
       userId: user.id,
-      clientId: user.client.id,
     });
 
     return {
@@ -52,7 +48,6 @@ export class AuthService {
 
   async renewToken(user: UserRequest, teamId?: string) {
     const userDB = await this.userService.findBy({ id: user.id }, [
-      "client",
       "permissionGroups",
       "permissionGroups.permissionGroup",
     ]);
@@ -71,98 +66,12 @@ export class AuthService {
     const payload = {
       username: user.email,
       id: user.id,
-      clientId: user.client.id,
       teamId: teamId,
     };
     return this.jwtService.sign(payload);
   }
-  async register(user: RegisterDTO) {
-    const queryRunner = this.otpRepository.manager.connection.createQueryRunner();
 
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      let client = await this.clientService.createClient(
-        user.companyName,
-        user.email.split("@")[1],
-      );
-      const newUser = await this.userService.createUserObject(
-        {
-          fname: user.fname,
-          lname: user.lname,
-          email: user.email,
-          password: uuidv4(),
-        } as UserDTO,
-        { clientId: client.id },
-      );
-      newUser.password = await hashPassword(newUser.password);
-      client = await queryRunner.manager.save(Client, {
-        ...client,
-      });
-      let adminPermissionGroup: PermissionGroup;
-      for (const permission of defaultPermissionGroups) {
-        const newGroup = await queryRunner.manager.save(PermissionGroup, {
-          name: permission.name,
-          clientId: client.id,
-          permissions: permission.permissions,
-          description: permission.description,
-        });
-        if (permission.name === "Admin") {
-          adminPermissionGroup = newGroup;
-        }
-      }
-
-      await queryRunner.manager.save(User, {
-        ...newUser,
-      });
-      const team = await queryRunner.manager.save(
-        Team,
-        new Team({
-          name: "Default Team",
-          clientId: client.id,
-          createdAt: new Date().valueOf(),
-          updatedAt: new Date().valueOf(),
-        }),
-      );
-      const teamMember = new TeamMember({
-        user: newUser,
-        team: team,
-        clientId: client.id,
-        createdAt: Date.now(),
-      });
-      await queryRunner.manager.save(teamMember);
-      await queryRunner.manager.save(UserPermissionGroup, {
-        user: newUser,
-        permissionGroup: adminPermissionGroup,
-        client: { id: client.id },
-        teamId: team.id,
-      });
-
-      await queryRunner.commitTransaction();
-      const code = await this.createCode(user.email, client.id);
-      this.queuePublisher.publishEmail({
-        to: user.email,
-        type: EmailType.REGISTRATION,
-        replaceString: {
-          company: user.companyName,
-          name: user.fname + " " + user.lname,
-          link: `${
-            process.env.FRONTEND_URL
-          }/activate/?code=${encodeURIComponent(
-            code,
-          )}&email=${encodeURIComponent(user.email)}`,
-        },
-      });
-      return "done";
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  async createCode(email: string, clientId: string, long = false) {
+  async createCode(email: string, long = false) {
     let otp = await this.otpRepository.findOne({ where: { email } });
 
     if (!otp) {
@@ -177,7 +86,6 @@ export class AuthService {
     } else {
       otp.code = `${Math.floor(Math.random() * 900000) + 100000}`;
     }
-    otp.client = { id: clientId } as Client;
 
     await this.otpRepository.save(otp);
     return otp.code;
@@ -186,12 +94,11 @@ export class AuthService {
   async createCodeForReset(email: string) {
     let user = await this.userService.findBy({ email, isActive: true }, [
       "createdBy",
-      "client",
     ]);
     if (!user) {
       throw new BadRequestException("invalid user email");
     }
-    const code = await this.createCode(email, user.client.id);
+    const code = await this.createCode(email);
     this.queuePublisher.publishEmail({
       to: email,
       type: EmailType.RESET_PASSWORD,
@@ -205,13 +112,13 @@ export class AuthService {
 
   async createCodeForActivation(email: string, creator: UserRequest) {
     let user = await this.userService.findBy(
-      { email, isActive: false, clientId: creator.clientId },
-      ["createdBy", "client"],
+      { email, isActive: false },
+      ["createdBy"],
     );
     if (!user) {
       throw new BadRequestException("invalid user email");
     }
-    const code = await this.createCode(email, user.client.id, true);
+    const code = await this.createCode(email, true);
     this.queuePublisher.publishEmail({
       to: email,
       type: EmailType.ACTIVATION,
@@ -262,7 +169,6 @@ export class AuthService {
     return {
       user: {
         id: user.id,
-        companyName: user.client.companyName,
         permissions: user.permissionGroups
           .map((pg) =>
             pg.permissionGroup.permissions.map((p) => ({

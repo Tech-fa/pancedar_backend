@@ -4,20 +4,18 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import type { Express } from "express";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { v4 as uuidv4 } from "uuid";
 import { WorkflowEmailCategory } from "./category.entity";
 import { WorkflowEmailCategoryResource } from "./category-resource.entity";
 import {
   CategoryResourceInputDto,
   CreateWorkflowEmailCategoryDto,
-  UpdateWorkflowEmailCategoryDto,
 } from "./dto";
 import { ResourceIngestionService } from "../resource-ingestion/resource-ingestion.service";
 import { S3Service } from "../common/s3.service";
 import { RagIngestionService } from "../rag/rag-ingestion.service";
+import { UserRequest } from "src/permissions/dto";
 
 @Injectable()
 export class CategoryService {
@@ -34,49 +32,59 @@ export class CategoryService {
   ) {}
 
   async create(
-    clientId: string,
+    user: UserRequest,
     body: Record<string, unknown>,
     uploadedFiles: Express.Multer.File[] = [],
   ): Promise<WorkflowEmailCategory> {
-    const dto = this.parseCreateDto(body);
-    dto.resources = await this.mergeUploadedFiles(
-      clientId,
-      dto.resources,
-      uploadedFiles,
-    );
+    const dto = Object.assign(new CreateWorkflowEmailCategoryDto(), body);
+    if (!dto.resource) {
+      dto.resource = new CategoryResourceInputDto();
+    }
+    if (uploadedFiles.length > 0) {
+      dto.resource.files = await this.s3Service.uploadFiles(
+        uploadedFiles,  
+        user.teamId,
+      );
+    }
 
     const name = dto.name.trim();
-    if (await this.existsByClientAndName(clientId, name)) {
+    if (await this.existsByTeamAndName(user.teamId, name)) {
       throw new BadRequestException("A category with this name already exists");
     }
 
     const now = Date.now();
     const category = this.categoryRepo.create({
-      clientId,
       name,
       description: dto.description ?? null,
       createdAt: now,
       updatedAt: now,
-      resources: this.mapResourceCreates(dto.resources ?? []),
+      teamId: user.teamId,
     });
 
     const saved = await this.categoryRepo.save(category);
-    this.ingestResourcesInBackground(clientId, saved.resources);
+    const resource = this.resourceRepo.create({
+      files: dto.resource.files,
+      links: dto.resource.links,
+      textResource: dto.resource.textResource,
+      categoryId: saved.id,
+    });
+    await this.resourceRepo.save(resource);
+    this.ingestResourcesInBackground(user.teamId, resource);
     return saved;
   }
 
-  async findAll(clientId: string): Promise<WorkflowEmailCategory[]> {
+  async findAll(user: UserRequest): Promise<WorkflowEmailCategory[]> {
     return this.categoryRepo.find({
-      where: { clientId },
-      relations: ["resources"],
+      where: { teamId: user.teamId },
+      relations: ["resource"],
       order: { name: "ASC" },
     });
   }
 
-  async findOne(clientId: string, id: string): Promise<WorkflowEmailCategory> {
+  async findOne(id: string): Promise<WorkflowEmailCategory> {
     const category = await this.categoryRepo.findOne({
-      where: { id, clientId },
-      relations: ["resources"],
+      where: { id },
+      relations: ["resource"],
     });
     if (!category) {
       throw new NotFoundException("Category not found");
@@ -97,70 +105,72 @@ export class CategoryService {
     }
     return this.categoryRepo
       .createQueryBuilder("c")
-      .leftJoinAndSelect("c.resources", "r")
+      .leftJoinAndSelect("c.resource", "r")
       .where("c.teamId = :teamId", { teamId })
       .andWhere("LOWER(c.name) = LOWER(:name)", { name: trimmed })
       .getOne();
   }
 
   async update(
-    clientId: string,
+    user: UserRequest,
     id: string,
     body: Record<string, unknown>,
     uploadedFiles: Express.Multer.File[] = [],
   ): Promise<WorkflowEmailCategory> {
-    const dto = this.parseUpdateDto(body);
-    if (dto.resources !== undefined || uploadedFiles.length > 0) {
-      dto.resources = await this.mergeUploadedFiles(
-        clientId,
-        dto.resources,
+    const dto = Object.assign(new CreateWorkflowEmailCategoryDto(), JSON.parse(body.resource as string));
+    
+    if (uploadedFiles.length > 0) {
+      if (!dto.resource) {
+        dto.resource = new CategoryResourceInputDto();
+      }
+      dto.resource.files = await this.s3Service.uploadFiles(
         uploadedFiles,
+        user.teamId,
       );
     }
 
     const category = await this.categoryRepo.findOne({
-      where: { id, clientId },
-      relations: ["resources"],
+      where: { id, teamId: user.teamId },
+      relations: ["resource"],
     });
     if (!category) {
       throw new NotFoundException("Category not found");
     }
 
-    if (dto.name !== undefined) {
-      const name = dto.name.trim();
+    if (body.name !== undefined) {
+      const name = (body.name as string).trim();
       const duplicate = await this.categoryRepo
         .createQueryBuilder("c")
-        .where("c.clientId = :clientId", { clientId })
+        .where("c.teamId = :teamId", { teamId: user.teamId })
         .andWhere("LOWER(c.name) = LOWER(:name)", { name })
+        .andWhere("c.id != :id", { id })
         .getOne();
-      if (duplicate && duplicate.id !== category.id) {
+
+      if (duplicate) {
         throw new BadRequestException(
           "A category with this name already exists",
         );
       }
       category.name = name;
     }
-
-    if (dto.description !== undefined) {
-      category.description = dto.description;
-    }
-
-    if (dto.resources !== undefined) {
-      const existingMap = new Map(category.resources.map((r) => [r.id, r]));
-      category.resources = this.mapResourceUpserts(dto.resources, existingMap);
-    }
-
+    category.resource = new WorkflowEmailCategoryResource({
+      files: dto.files,
+      links: dto.links,
+      textResource: dto.textResource,
+      id: dto.id,
+      categoryId: category.id,
+    });
+    
     category.updatedAt = Date.now();
     const saved = await this.categoryRepo.save(category);
-    if (dto.resources !== undefined) {
-      this.ingestResourcesInBackground(clientId, saved.resources);
-    }
+    await this.resourceRepo.save(category.resource);
+      this.ingestResourcesInBackground(user.teamId, category.resource);
     return saved;
   }
 
-  async delete(clientId: string, id: string): Promise<{ id: string }> {
+  async delete(user: UserRequest, id: string): Promise<{ id: string }> {
     const category = await this.categoryRepo.findOne({
-      where: { id, clientId },
+      where: { id, teamId: user.teamId },
     });
     if (!category) {
       throw new NotFoundException("Category not found");
@@ -174,116 +184,16 @@ export class CategoryService {
     return { id };
   }
 
-  private async existsByClientAndName(
-    clientId: string,
+  private async existsByTeamAndName(
+    teamId: string,
     name: string,
   ): Promise<boolean> {
     const found = await this.categoryRepo
       .createQueryBuilder("c")
-      .where("c.clientId = :clientId", { clientId })
+      .where("c.teamId = :teamId", { teamId })
       .andWhere("LOWER(c.name) = LOWER(:name)", { name })
       .getOne();
     return !!found;
-  }
-
-  private parseCreateDto(
-    body: Record<string, unknown>,
-  ): CreateWorkflowEmailCategoryDto {
-    const name = this.readString(body.name);
-    if (!name.trim()) {
-      throw new BadRequestException("Category name is required");
-    }
-
-    const dto: CreateWorkflowEmailCategoryDto = { name: name.trim() };
-
-    const description = this.readNullableString(body.description);
-    if (description !== undefined) {
-      dto.description = description;
-    }
-
-    const resources = this.parseResources(body.resources);
-    if (resources !== undefined) {
-      dto.resources = resources;
-    }
-
-    return dto;
-  }
-
-  private parseUpdateDto(
-    body: Record<string, unknown>,
-  ): UpdateWorkflowEmailCategoryDto {
-    const dto: UpdateWorkflowEmailCategoryDto = {};
-
-    if (body.name !== undefined) {
-      const name = this.readString(body.name);
-      if (!name.trim()) {
-        throw new BadRequestException("Category name is required");
-      }
-      dto.name = name.trim();
-    }
-
-    if (body.description !== undefined) {
-      dto.description = this.readNullableString(body.description) ?? null;
-    }
-
-    const resources = this.parseResources(body.resources);
-    if (resources !== undefined) {
-      dto.resources = resources;
-    }
-
-    return dto;
-  }
-
-  private parseResources(
-    raw: unknown,
-  ): CategoryResourceInputDto[] | undefined {
-    if (raw === undefined) {
-      return undefined;
-    }
-    if (Array.isArray(raw)) {
-      return raw as CategoryResourceInputDto[];
-    }
-    if (typeof raw === "string") {
-      if (!raw.trim()) {
-        return [];
-      }
-      try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-          throw new BadRequestException("Resources must be an array");
-        }
-        return parsed as CategoryResourceInputDto[];
-      } catch {
-        throw new BadRequestException("Invalid resources payload");
-      }
-    }
-    throw new BadRequestException("Invalid resources payload");
-  }
-
-  private async mergeUploadedFiles(
-    clientId: string,
-    resources: CategoryResourceInputDto[] | undefined,
-    uploadedFiles: Express.Multer.File[],
-  ): Promise<CategoryResourceInputDto[]> {
-    const base = resources ? [...resources] : [];
-    const firstResource: CategoryResourceInputDto = base[0]
-      ? { ...base[0], files: [...(base[0].files ?? [])] }
-      : { files: [] };
-
-    if (!uploadedFiles.length) {
-      return base.length ? base : [];
-    }
-
-    for (const file of uploadedFiles) {
-      const uploadedKey = await this.s3Service.uploadFile(file, clientId);
-      firstResource.files = [...(firstResource.files ?? []), uploadedKey];
-    }
-
-    if (base.length) {
-      base[0] = firstResource;
-      return base;
-    }
-    return [firstResource];
   }
 
   private readString(value: unknown): string {
@@ -304,55 +214,17 @@ export class CategoryService {
     return str === "" ? null : str;
   }
 
-  private mapResourceCreates(
-    inputs: {
-      textResource?: string | null;
-      links?: string[];
-      files?: string[];
-    }[],
-  ): WorkflowEmailCategoryResource[] {
-    return inputs.map((r) =>
-      this.resourceRepo.create({
-        textResource: r.textResource ?? null,
-        links: r.links ?? [],
-        files: r.files ?? [],
-      }),
-    );
-  }
-
-  private mapResourceUpserts(
-    inputs: {
-      id?: string;
-      textResource?: string | null;
-      links?: string[];
-      files?: string[];
-    }[],
-    existingMap: Map<string, WorkflowEmailCategoryResource> = new Map(),
-  ): WorkflowEmailCategoryResource[] {
-    return inputs.map((r) =>
-      this.resourceRepo.create({
-        ...(r.id ? { id: r.id } : { id: uuidv4() }),
-        textResource: r.textResource ?? null,
-        links: r.links ?? [],
-        files: r.files ?? [],
-        allText: r.id ? existingMap.get(r.id)?.allText ?? null : null,
-      }),
-    );
-  }
-
   private ingestResourcesInBackground(
-    clientId: string,
-    resources: WorkflowEmailCategoryResource[],
+    teamId: string,
+    resource: WorkflowEmailCategoryResource,
   ): void {
-    Promise.all(
-      resources.map((r) => this.ingestResource(clientId, r)),
-    ).catch((err) =>
+    this.ingestResource(teamId, resource).catch((err) =>
       this.logger.error("Background resource ingestion failed", err),
     );
   }
 
   private async ingestResource(
-    clientId: string,
+    teamId: string,
     resource: WorkflowEmailCategoryResource,
   ): Promise<void> {
     const files = resource.files ?? [];
@@ -377,13 +249,13 @@ export class CategoryService {
       if (!parts.length) return;
 
       const combinedText = parts.join("\n\n");
-      const s3Key = `${clientId}/resource-text/${resource.id}.txt`;
+      const s3Key = `${teamId}/resource-text/${resource.id}.txt`;
 
       await this.s3Service.uploadText(s3Key, combinedText);
       await this.resourceRepo.update(resource.id, { allText: s3Key });
 
       await this.ragIngestionService.indexResource({
-        clientId,
+        teamId,
         resourceId: resource.categoryId,
         resourceType: "category",
         textResource: resource.textResource,

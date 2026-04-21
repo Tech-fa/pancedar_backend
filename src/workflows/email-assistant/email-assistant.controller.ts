@@ -1,4 +1,4 @@
-import { Controller, Logger, Param, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Logger, Param, Post, Req, Res } from "@nestjs/common";
 import type { Response } from "express";
 import { EmailAssistantService } from "./email-assistant.service";
 import { formatResponse } from "../../util/helper-util";
@@ -21,7 +21,15 @@ export class EmailAssistantController {
     @Req() req,
     @Res() res: Response,
     @Param("workflowRunId") workflowRunId: string,
+    @Body("replyBody") replyBody?: string,
   ) {
+    if (replyBody !== undefined) {
+      await this.emailAssistantService.updateDraftReplyBody(
+        workflowRunId,
+        req.user,
+        replyBody,
+      );
+    }
     return formatResponse(
       this.logger,
       this.emailAssistantService.sendApprovedReply(workflowRunId, req.user),

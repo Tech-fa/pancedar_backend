@@ -1,4 +1,3 @@
-import { Client } from "./client/client.entity";
 import { connectionSource } from "./db/database";
 import { User } from "./user/user.entity";
 import { v4 as uuidv4 } from "uuid";
@@ -12,14 +11,13 @@ import { PermissionGroup } from "./permissions/permission-group.entity";
 import { UserPermissionGroup } from "./permissions/user-permission-group.entity";
 import { Team, TeamMember } from "./team/team.entity";
 
-async function createClient() {
-  const clientName = process.env.CLIENT_NAME;
+async function createLogin() {
   const adminEmail = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
 
-  if (!clientName || !adminEmail || !adminPassword) {
+  if (!adminEmail || !adminPassword) {
     console.error(
-      "Missing required environment variables: CLIENT_NAME, ADMIN_EMAIL, ADMIN_PASSWORD",
+      "Missing required environment variables: ADMIN_EMAIL, ADMIN_PASSWORD",
     );
     process.exit(1);
   }
@@ -36,7 +34,6 @@ async function createClient() {
     await dataSource.initialize();
     console.log("Database connected.");
 
-    const clientRepository = dataSource.getRepository(Client);
     const userRepository = dataSource.getRepository(User);
     const permissionGroupRepository = dataSource.getRepository(PermissionGroup);
     const userPermissionRepository = dataSource.getRepository(
@@ -44,27 +41,14 @@ async function createClient() {
     );
     const teamRepository = dataSource.getRepository(Team);
     const teamMemberRepository = dataSource.getRepository(TeamMember);
-    // 1. Create client
-    const client = clientRepository.create({
-      id: uuidv4(),
-      companyName: clientName,
-      createdAt: Date.now(),
-      deleted: false,
-      domain,
-    });
-    await clientRepository.save(client);
-    console.log(`Client "${clientName}" created.`);
-
-    // 2. Create admin user
     const adminUser = userRepository.create({
       id: uuidv4(),
       email: adminEmail,
       password: await hashPassword(adminPassword),
-      client,
       createdAt: Date.now(),
       deleted: false,
       fname: "Admin",
-      lname: clientName,
+      lname: "Admin",
       isActive: true,
       failedLogins: 0,
       phone: "1234567890",
@@ -78,7 +62,6 @@ async function createClient() {
     for (const permission of defaultPermissionGroups) {
       const permissionGroup = permissionGroupRepository.create({
         name: permission.name,
-        client,
         userPermissionGroups: [],
         permissions: permission.permissions,
         description: permission.description,
@@ -94,17 +77,13 @@ async function createClient() {
     const defaultTeam = await teamRepository.save(
       new Team({
         name: "Default Team",
-        client,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-
-        clientId: client.id,
       }),
     );
     const teamMember = new TeamMember({
       user: adminUser,
       team: defaultTeam,
-      clientId: client.id,
       createdAt: Date.now(),
     });
     await teamMemberRepository.save(teamMember);
@@ -113,16 +92,15 @@ async function createClient() {
       user: adminUser,
       permissionGroup: adminPermissionGroup,
       teamId: defaultTeam.id,
-      client,
     });
     await userPermissionRepository.save(userPermissionGroup);
     console.log("Permission groups created and admin assigned.");
   } catch (error) {
-    console.error("Client creation failed:", error);
+    console.error("Login creation failed:", error);
     process.exit(1);
   } finally {
     await dataSource.destroy();
   }
 }
 
-createClient();
+createLogin();

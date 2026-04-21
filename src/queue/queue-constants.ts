@@ -21,9 +21,9 @@ export enum Events {
   /** History change → resolve workflow trigger via entity service `getTriggerName` and run matching workflows. */
   WORKFLOW_TRIGGER_CHANGE_FROM_DATA_ENTITY = 'workflow_trigger_change_from_data_entity',
   RUN_WORKFLOW = 'run_workflow',
-  CHECK_USER_COMPLIANCE = 'check_user_compliance',
   /** Workflow email reply draft + category resources for downstream sending. */
   EMAIL_WORKFLOW_REPLY = 'email_workflow_reply',
+  EMAIL_WORKFLOW_REPLY_GMAIL = 'email_workflow_reply_gmail',
   EMAIL_ASSISTANT = 'email_assistant',
 }
 

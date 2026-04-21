@@ -5,15 +5,15 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
 } from "typeorm";
-import { ClientBaseEntity } from "../client/client-base";
 import { Team } from "../team/team.entity";
 import { WorkflowEmailCategoryResource } from "./category-resource.entity";
 
 @Entity("workflow_email_categories")
-@Index(["clientId", "name"], { unique: true })
-export class WorkflowEmailCategory extends ClientBaseEntity {
+@Index(["teamId", "name"], { unique: true })
+export class WorkflowEmailCategory {
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
@@ -29,10 +29,8 @@ export class WorkflowEmailCategory extends ClientBaseEntity {
   @Column({ name: "updated_at", type: "bigint" })
   updatedAt: number;
 
-  @OneToMany(() => WorkflowEmailCategoryResource, (r) => r.category, {
-    cascade: true,
-  })
-  resources: WorkflowEmailCategoryResource[];
+  @OneToOne(() => WorkflowEmailCategoryResource, (r) => r.category)
+  resource: WorkflowEmailCategoryResource;
 
   @ManyToOne(() => Team)
   @JoinColumn({ name: "team_id" })

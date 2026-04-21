@@ -16,6 +16,7 @@ import { QueuePublisher } from "../../queue/queue.publisher";
 import { Events } from "../../queue/queue-constants";
 import { EmailWorkflowReplyPayload } from "../../email-handler/dto";
 import { UserRequest } from "../../permissions/dto";
+import { incomingEmailsPermission } from "src/permissions/permissions";
 
 @Injectable()
 export class EmailAssistantService {
@@ -44,11 +45,11 @@ export class EmailAssistantService {
       return;
     }
     workflowRun = await this.runCategorizeStep(workflowRun, incomingEmailId);
+
     if (workflowRun.status !== WorkflowRunStatus.PENDING) {
       this.logger.warn(`Workflow run ${runId} is not pending`);
       return;
     }
-
     const category = await this.categoryService.findByTeamAndName(
       teamId,
       workflowRun.stepsContext["Categorize Email"].categoryName,
@@ -91,6 +92,10 @@ export class EmailAssistantService {
           actionUrl: !approveBeforeSending
             ? null
             : `workflows/email-assistant/${workflowRun.id}/send`,
+          relatedViews: {
+            subject: incomingEmailsPermission.subject,
+            id: incomingEmailId,
+          },
         },
       },
     });
@@ -104,9 +109,12 @@ export class EmailAssistantService {
     if (workflowRun.currentStep === "Categorize Email") {
       return workflowRun;
     }
+    const categories = await this.categoryService.findAll({
+      teamId: workflowRun.workflow.teamId,
+    } as UserRequest);
     const analysis = await this.categorizeService.runStep({
       incomingEmailId,
-      categories: [],
+      categories,
     });
     this.logger.log(
       `Categorized email ${incomingEmailId} as "${
@@ -125,7 +133,7 @@ export class EmailAssistantService {
       workflowRun = await this.workflowService.updateWorkflowRun(
         workflowRun.id,
         {
-          status: WorkflowRunStatus.COMPLETED,
+          status: WorkflowRunStatus.SKIPPED,
           explanation: {
             explanation: "No category was matched for the email",
             references: {
@@ -142,6 +150,7 @@ export class EmailAssistantService {
   /**
    * Publishes the drafted reply (when approval was required) and marks the run completed.
    */
+
   async sendApprovedReply(
     workflowRunId: string,
     user: UserRequest,
@@ -156,10 +165,7 @@ export class EmailAssistantService {
     if (!workflow) {
       throw new NotFoundException("Workflow not found for this run");
     }
-    if (
-      workflow.teamId !== user.teamId ||
-      workflow.clientId !== user.clientId
-    ) {
+    if (workflow.teamId !== user.teamId) {
       throw new ForbiddenException("Not allowed to update this workflow run");
     }
     if (workflowRun.status !== WorkflowRunStatus.AWAITING_ACTION) {
@@ -194,6 +200,12 @@ export class EmailAssistantService {
       workflowRunId,
       {
         status: WorkflowRunStatus.COMPLETED,
+        stepsContext: {
+          ...workflowRun.stepsContext,
+          "Reply Email": {
+            ...draft,
+          },
+        },
         updatedAt: now,
       },
     );
@@ -201,5 +213,43 @@ export class EmailAssistantService {
       throw new NotFoundException("Workflow run not found after update");
     }
     return updated;
+  }
+
+  async updateDraftReplyBody(
+    workflowRunId: string,
+    user: UserRequest,
+    replyBody: string,
+  ): Promise<WorkflowRun> {
+    const workflowRun = await this.workflowService.findWorkflowRunById(
+      workflowRunId,
+    );
+    if (
+      !workflowRun ||
+      workflowRun.status !== WorkflowRunStatus.AWAITING_ACTION
+    ) {
+      throw new BadRequestException(
+        "Workflow run is not waiting for send approval",
+      );
+    }
+    if (workflowRun.workflow.teamId !== user.teamId) {
+      throw new ForbiddenException("Not allowed to update this workflow run");
+    }
+    const draft = workflowRun.stepsContext?.["Reply Email"];
+    if (!draft) {
+      throw new BadRequestException(
+        "No reply draft found for this workflow run",
+      );
+    }
+
+    return this.workflowService.updateWorkflowRun(workflowRunId, {
+      stepsContext: {
+        ...workflowRun.stepsContext,
+        "Reply Email": {
+          ...draft,
+          replyBody,
+        },
+      },
+      updatedAt: Date.now(),
+    });
   }
 }

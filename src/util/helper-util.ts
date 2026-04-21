@@ -1,7 +1,6 @@
 import { BadRequestException, Logger } from "@nestjs/common";
 import * as crypto from "crypto";
 import * as jwt from "jsonwebtoken";
-import { views } from "./views";
 import axios from "axios";
 
 import * as bcrypt from "bcrypt";
@@ -55,7 +54,6 @@ function checkForForbiddenAttributes(data: any) {
 export async function encrypt(text: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const algorithm = "aes-192-cbc";
-    console.log(process.env.ENCRYPTION_KEY);
     const key = crypto.scryptSync(process.env.ENCRYPTION_KEY, "GfG", 24);
 
     const iv = Buffer.alloc(16, 0);
@@ -85,7 +83,6 @@ export async function encrypt(text: string): Promise<string> {
   });
 }
 export function decrypt(text): Promise<string> {
-  console.log(text)
   return new Promise((resolve, reject) => {
     // Defining algorithm
     const algorithm = "aes-192-cbc";
@@ -127,16 +124,6 @@ export function decodeJWT(jwtToken: string) {
 export function decodeBase64(b64string: string) {
   const buf = Buffer.from(b64string, "base64");
   return buf.toString("utf-8");
-}
-export function getViewWithCondition(
-  tbl: string,
-  otherCondition?: string,
-): string {
-  let query = views[tbl];
-
-  query = query.replace("@@extra@@", otherCondition || "");
-
-  return query;
 }
 
 export function getHeader(headers, name) {
@@ -195,26 +182,6 @@ export function snakeToCamelCase(str: string): string {
     .join(" ");
 }
 
-export const flattenTree = (unitTypes: any[]) => {
-  const flatList: any[] = [];
-  const seenIds = new Set<number>();
-
-  const traverse = (nodes: any[]) => {
-    for (const node of nodes) {
-      if (!seenIds.has(node.id)) {
-        seenIds.add(node.id);
-        flatList.push(node);
-      }
-      if (node.children && node.children.length) {
-        traverse(node.children);
-      }
-    }
-  };
-
-  traverse(unitTypes);
-  return flatList;
-};
-
 export const getStartOfTodayEpoch = (): number => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -239,42 +206,4 @@ export function parseDecimal(
     throw new BadRequestException(`Invalid number provided for ${field}`);
   }
   return numeric;
-}
-
-// CSV helpers (backend-side)
-export function parseCsvRow(row: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  let i = 0;
-  while (i < row.length) {
-    const char = row[i];
-    if (char === '"') {
-      if (inQuotes && row[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === "," && !inQuotes) {
-      result.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-    i++;
-  }
-  result.push(current);
-  return result;
-}
-
-export function getCsvLines(content: string): string[] {
-  if (!content) return [];
-  return content.split("\n").filter((line) => line.trim());
-}
-
-export function getCsvHeaders(content: string): string[] {
-  const lines = getCsvLines(content);
-  if (lines.length === 0) return [];
-  return parseCsvRow(lines[0]).map((h) => h.trim().replace(/^"|"$/g, ""));
 }

@@ -7,14 +7,12 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
 } from "typeorm";
-import { ClientBaseEntity } from "../client/client-base";
 import { User } from "../user/user.entity";
 
 @Entity("teams")
-@Index(["clientId", "name"], { unique: true })
-export class Team extends ClientBaseEntity {
+@Index(["name"], { unique: true })
+export class Team {
   constructor(data: Partial<Team>) {
-    super();
     Object.assign(this, data);
   }
 
@@ -36,9 +34,8 @@ export class Team extends ClientBaseEntity {
 
 @Entity("team_members")
 @Index(["team", "user"], { unique: true })
-export class TeamMember extends ClientBaseEntity {
+export class TeamMember {
   constructor(data: Partial<TeamMember>) {
-    super();
     Object.assign(this, data);
   }
 

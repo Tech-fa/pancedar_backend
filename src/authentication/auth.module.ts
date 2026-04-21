@@ -9,14 +9,12 @@ import { JwtStrategy } from "./jwt.strategy";
 import { LocalStrategy } from "./local.strategy";
 import { Otp } from "../user/otp.entity";
 import { UsersModule } from "../user/user.module";
-import { ClientModule } from "../client/client.module";
 import { QueueModule } from "../queue/queue.module";
 import { TeamModule } from "../team/team.module";
 @Module({
   imports: [
     TypeOrmModule.forFeature([Otp]),
     UsersModule,
-    ClientModule,
     PassportModule,
     JwtModule.register({
       secret: jwtConstants.secret || "secret",

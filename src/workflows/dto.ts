@@ -9,7 +9,7 @@ import {
   MaxLength,
   ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 
 export class WorkflowConditionItemDto {
   @IsOptional()
@@ -102,6 +102,7 @@ export enum WorkflowRunStatus {
   AWAITING_ACTION = "awaiting_action",
   RETRYING = "retrying",
   COMPLETED = "completed",
+  SKIPPED = "skipped",
   FAILED = "failed",
 }
 
@@ -172,6 +173,39 @@ export class UpdateWorkflowDto {
   @ValidateNested({ each: true })
   @Type(() => WorkflowStepDto)
   steps?: WorkflowStepDto[];
+}
+
+const toBoolean = ({ value }: { value: unknown }): boolean | undefined => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+  return undefined;
+};
+
+export class FindWorkflowRunsQueryDto {
+  @IsOptional()
+  @Transform(toBoolean)
+  hideCompleted?: string;
+
+  @IsOptional()
+  @Transform(toBoolean)
+  hideSkipped?: string;
+
+  @IsOptional()
+  @Transform(toBoolean)
+  onlyShowAwaitingActions?: string;
 }
 
 export interface WorkflowConditionItemDto {

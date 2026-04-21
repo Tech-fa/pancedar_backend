@@ -11,13 +11,11 @@ import {
   Res,
 } from "@nestjs/common";
 import type { Response } from "express";
-import { ModuleRef } from "@nestjs/core";
 import { ConnectorService } from "./connector.service";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
 import { connectorPermission } from "../permissions/permissions";
 import { CreateConnectorDto, UpdateConnectorDto } from "./dto";
-import { GoogleSerivce } from "./gmail/google.service";
 
 class AddConnectionDto {
   connectorTypeName: string;
@@ -44,10 +42,9 @@ export class ConnectorController {
   @Get(":id")
   @hasPermission({ subject: connectorPermission.subject, actions: ["read"] })
   async findOne(@Req() req, @Res() res: Response, @Param("id") id: string) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.connectorService.findOne(clientId, id),
+      this.connectorService.findOneById(id),
       res,
       "Connector fetched successfully",
     );
@@ -81,7 +78,6 @@ export class ConnectorController {
         const connector = await this.connectorService.addConnection(
           req.user,
           dto.connectorTypeName,
-          dto.name,
         );
         const typeConfig = this.connectorService.findTypeByName(
           dto.connectorTypeName,
@@ -116,10 +112,9 @@ export class ConnectorController {
     @Param("id") id: string,
     @Body() dto: UpdateConnectorDto,
   ) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.connectorService.update(clientId, id, dto),
+      this.connectorService.update(id, dto),
       res,
       "Connector updated successfully",
     );
@@ -128,10 +123,9 @@ export class ConnectorController {
   @Delete(":id")
   @hasPermission({ subject: connectorPermission.subject, actions: ["delete"] })
   async remove(@Req() req, @Res() res: Response, @Param("id") id: string) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.connectorService.delete(clientId, id),
+      this.connectorService.delete(id),
       res,
       "Connector deleted successfully",
     );

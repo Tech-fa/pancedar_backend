@@ -5,7 +5,6 @@ import { CachingModule } from '../cache/cache.module';
 import { PermissionGroup } from './permission-group.entity';
 import { PermissionController } from './permission.controller';
 import { UserPermissionGroup } from './user-permission-group.entity';
-import { ClientModule } from '../client/client.module';
 import { QueueModule } from '../queue/queue.module';
 @Module({
   imports: [
@@ -14,7 +13,6 @@ import { QueueModule } from '../queue/queue.module';
       UserPermissionGroup,
     ]),
     CachingModule,
-    ClientModule,
     QueueModule,
   ],
   providers: [PermissionService],

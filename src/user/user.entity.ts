@@ -8,18 +8,11 @@ import {
   Index,
 } from "typeorm";
 import { UserPermissionGroup } from "../permissions/user-permission-group.entity";
-import { ClientBaseEntity } from "../client/client-base";
 import { TrackChanges, ExcludeField } from "../history/track-changes.decorator";
-
-export enum UserType {
-  STANDARD = "standard",
-  TECHNICIAN = "technician",
-  PILOT = "pilot",
-}
 
 @Entity("users")
 @TrackChanges()
-export class User extends ClientBaseEntity {
+export class User {
   @PrimaryColumn({ name: "id" })
   id: string;
 
@@ -65,14 +58,6 @@ export class User extends ClientBaseEntity {
   @Column({ name: "deleted", type: "boolean", default: false })
   @Index()
   deleted: boolean;
-
-  @Column({
-    name: "user_type",
-    type: "enum",
-    enum: UserType,
-    default: UserType.STANDARD,
-  })
-  userType: UserType;
 
   @Column({ name: "last_login", type: "bigint", nullable: true })
   lastLogin: number;

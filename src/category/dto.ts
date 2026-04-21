@@ -40,26 +40,9 @@ export class CreateWorkflowEmailCategoryDto {
   description?: string | null;
 
   @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
+  @ValidateNested()
   @Type(() => CategoryResourceInputDto)
-  resources?: CategoryResourceInputDto[];
+  resource?: CategoryResourceInputDto;
 }
 
-export class UpdateWorkflowEmailCategoryDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(255)
-  name?: string;
 
-  @IsOptional()
-  @IsString()
-  description?: string | null;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CategoryResourceInputDto)
-  resources?: CategoryResourceInputDto[];
-}

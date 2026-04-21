@@ -3,7 +3,6 @@ import { RabbitSubscribe } from "@golevelup/nestjs-rabbitmq";
 import { Events, getListening } from "../../queue/queue-constants";
 import { Public } from "../../util/constants";
 import { EmailAssistantService } from "./email-assistant.service";
-import { WorkflowService } from "../workflow.service";
 import { EmailAssistantPayload } from "../steps/email/dto";
 
 @Injectable()
@@ -28,7 +27,7 @@ export class EmailAssistantQueueHandler {
     } catch (error) {
       this.logger.error(
         `Error running EMAIL_ASSISTANT workflowRun ${payload.runId}`,
-        error,
+        error.stack,
       );
     }
   }

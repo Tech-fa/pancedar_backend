@@ -13,7 +13,7 @@ interface SourceChunk {
 }
 
 export interface IndexResourceParams {
-  clientId: string;
+  teamId: string;
   resourceId: string;
   resourceType: "category" | "resource";
   textResource: string | null;
@@ -47,7 +47,7 @@ export class RagIngestionService {
     const rows = pieces.map((p, i) =>
       this.chunkRepo.create({
         id: uuidv4(),
-        clientId: params.clientId,
+        teamId: params.teamId,
         resourceId: params.resourceId,
         resourceType: params.resourceType,
         sourceType: p.sourceType,

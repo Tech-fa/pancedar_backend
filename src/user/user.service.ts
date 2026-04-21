@@ -5,7 +5,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { User, UserType } from "./user.entity";
+import { User } from "./user.entity";
 import { v4 as uuidv4 } from "uuid";
 import * as bcrypt from "bcrypt";
 import { UserDTO } from "./user.dto";
@@ -43,25 +43,19 @@ export class UsersService {
     return user;
   }
 
-  async findAllBySearch(
-    search: string,
-    user: UserRequest,
-    userType?: string,
-  ): Promise<User[]> {
+  async findAllBySearch(search: string, user: UserRequest): Promise<User[]> {
     const query = this.userRepository
       .createQueryBuilder("user")
       .leftJoinAndSelect("user.permissionGroups", "pg")
       .leftJoinAndSelect("pg.permissionGroup", "pg2")
-      .where("user.clientId = :clientId AND user.deleted = false", {
-        clientId: user.clientId,
-      });
+      .where("user.deleted = false");
 
     if (user.teamId) {
       query.innerJoin(
         "team_members",
         "tm",
-        "tm.user_id = user.id AND tm.team_id = :teamId AND tm.client_id = :clientId",
-        { teamId: user.teamId, clientId: user.clientId },
+        "tm.user_id = user.id AND tm.team_id = :teamId",
+        { teamId: user.teamId },
       );
     }
 
@@ -71,10 +65,6 @@ export class UsersService {
         "LOWER(CONCAT(user.fname, ' ', user.lname)) LIKE LOWER(:search))",
       { search: `%${search || ""}%` },
     );
-
-    if (userType) {
-      query.andWhere("user.userType = :userType", { userType });
-    }
 
     query
       .orderBy("user.createdAt", "DESC")
@@ -137,7 +127,6 @@ export class UsersService {
     password: string,
   ): Promise<User & { teamId: string }> {
     const user = await this.findBy({ email, deleted: false }, [
-      "client",
       "permissionGroups",
       "permissionGroups.permissionGroup",
       "createdBy",
@@ -173,7 +162,6 @@ export class UsersService {
 
     const team = await this.teamService.getDefaultTeamForUser({
       id: user.id,
-      clientId: user.clientId,
       username: user.email,
       teamId: null,
     });
@@ -184,11 +172,15 @@ export class UsersService {
     }
     return { ...user, teamId: team.id };
   }
+  async deleteIncomingEmails(connectorId: string) {
+    await this.incomingEmailRepository.delete({
+      connectorId,
+    });
+  }
 
-  async inactiveUser(userId: string, clientId: string, action: string) {
+  async inactiveUser(userId: string, action: string) {
     const user = await this.findBy({
       id: userId,
-      clientId,
     });
     if (!user.verifiedAt) {
       throw new BadRequestException(
@@ -228,7 +220,6 @@ export class UsersService {
       phone?: string;
       isActive?: boolean;
       email?: string;
-      userType?: UserType;
       skillIds?: string[];
       isAdmin?: boolean;
       assignments?: { teamId: string; groupIds: number[] }[];
@@ -268,9 +259,6 @@ export class UsersService {
         );
       }
       user.isActive = updated.isActive;
-    }
-    if (updated.userType && updated.userType !== user.userType) {
-      user.userType = updated.userType;
     }
 
     const updateData: any = {};
@@ -313,14 +301,12 @@ export class UsersService {
         // Update existing OTP record
         existingOtp.code = code;
         existingOtp.created = created;
-        existingOtp.clientId = user.clientId;
         await this.otpRepository.save(existingOtp);
       } else {
         // Create new OTP record
         await this.otpRepository.save({
           email: updated.email,
           code: code,
-          client: { id: user.clientId },
           created: created,
         });
       }
@@ -342,9 +328,9 @@ export class UsersService {
     }
 
     if (updated.isAdmin) {
-      await this.teamService.setAsAdmin(user.clientId, userId);
+      await this.teamService.setAsAdmin(userId);
     } else if (updated.assignments?.length) {
-      await this.teamService.setTeams(user.clientId, {
+      await this.teamService.setTeams({
         userId,
         assignments: updated.assignments,
       });
@@ -373,6 +359,7 @@ export class UsersService {
     incomingEmail.messageId = data.messageId;
     incomingEmail.creationDate = data.creationDate;
     incomingEmail.attachments = data.attachments || [];
+    incomingEmail.createdAt = new Date().valueOf();
 
     return await this.incomingEmailRepository.save(incomingEmail);
   }
@@ -382,6 +369,47 @@ export class UsersService {
       where: { id },
       relations,
     });
+  }
+
+  async getIncomingEmailReview(incomingEmailId: string, user: UserRequest) {
+    const incomingEmail = await this.incomingEmailRepository
+      .createQueryBuilder("incomingEmail")
+      .leftJoinAndSelect("incomingEmail.connector", "connector")
+      .leftJoinAndSelect("incomingEmail.workflowRun", "workflowRun")
+      .leftJoinAndSelect("workflowRun.workflow", "workflow")
+      .where({
+        id: incomingEmailId,
+      })
+      .andWhere("connector.teamId = :teamId", { teamId: user.teamId })
+      .getOne();
+    if (!incomingEmail) {
+      throw new NotFoundException("Incoming email not found");
+    }
+
+    let replyEmail: {
+      replyBody: string;
+      actionUrl: string | null;
+      workflowRunId: string;
+    } | null = null;
+    const replyStepContext =
+      incomingEmail.workflowRun.stepsContext["Reply Email"];
+    if (replyStepContext) {
+      replyEmail = {
+        replyBody: replyStepContext.replyBody || "",
+        actionUrl: replyStepContext.actionUrl || null,
+        workflowRunId: incomingEmail.workflowRunId,
+      };
+    }
+
+    return {
+      id: incomingEmail.id,
+      from: incomingEmail.from,
+      subject: incomingEmail.subject,
+      htmlText: incomingEmail.htmlText || "",
+      workflowRunId: incomingEmail.workflowRunId || null,
+      workflowRun: incomingEmail.workflowRun || null,
+      replyEmail,
+    };
   }
 
   async findIncomingEmailByMessageId(messageId: string) {
@@ -405,12 +433,12 @@ export class UsersService {
     const newUser = await this.createUserObject(dto, user);
 
     const result = await this.userRepository.save(newUser);
-    const userDB = await this.findBy({ id: result.id }, ["client"]);
+    const userDB = await this.findBy({ id: result.id });
 
     if (dto.isAdmin) {
-      await this.teamService.setAsAdmin(user.clientId, result.id);
+      await this.teamService.setAsAdmin(result.id);
     } else if (dto.assignments?.length) {
-      await this.teamService.setTeams(user.clientId, {
+      await this.teamService.setTeams({
         userId: result.id,
         assignments: dto.assignments,
       });
@@ -421,7 +449,6 @@ export class UsersService {
       await this.otpRepository.save({
         email: newUser.email,
         code,
-        client: { id: newUser.client.id },
         created: new Date().valueOf() + 1000 * 60 * 60 * 24,
       });
       const link = `${
@@ -439,11 +466,6 @@ export class UsersService {
         },
       });
     }
-    this.queuePublisher.publishComplianceCheck({
-      userId: user.id,
-      clientId: user.clientId,
-      teamId: user.teamId,
-    });
     return { id: userDB.id };
   }
 
@@ -474,18 +496,14 @@ export class UsersService {
       password: await hashPassword(uuidv4(), true),
       createdAt: new Date().valueOf(),
       phone: dto.phone,
-      userType: dto.userType || UserType.STANDARD,
-      client: {
-        id: user.clientId,
-      },
       createdBy: createdBy,
       failedLogins: 0,
     } as User;
     return newUser;
   }
 
-  async deleteUser(userId: string, clientId: string) {
-    const user = await this.findBy({ id: userId, client: { id: clientId } });
+  async deleteUser(userId: string) {
+    const user = await this.findBy({ id: userId });
     if (!user) throw new NotFoundException("User not found");
     await this.userRepository.update(userId, {
       isActive: false,

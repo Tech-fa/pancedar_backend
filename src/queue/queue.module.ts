@@ -46,7 +46,7 @@ export class QueueModule {
     await this.producer.createQueue(Events.CRON_JOB_SCHEDULER);
     await this.producer.createQueue(Events.WORKFLOW_TRIGGER_CHANGE_FROM_DATA_ENTITY);
     await this.producer.createQueue(Events.RUN_WORKFLOW);
-    await this.producer.createQueue(Events.CHECK_USER_COMPLIANCE);
     await this.producer.createQueue(Events.EMAIL_WORKFLOW_REPLY);
+    await this.producer.createQueue(Events.EMAIL_WORKFLOW_REPLY_GMAIL);
   }
 }

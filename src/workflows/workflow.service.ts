@@ -10,6 +10,7 @@ import { Workflow } from "./workflow.entity";
 
 import {
   CreateWorkflowDto,
+  FindWorkflowRunsQueryDto,
   UpdateWorkflowStepsDto,
   WorkflowRunStatus,
 } from "./dto";
@@ -33,7 +34,7 @@ export class WorkflowService {
 
   async findAll(user: UserRequest): Promise<Workflow[]> {
     const workflows = await this.workflowRepo.find({
-      where: { clientId: user.clientId, teamId: user.teamId },
+      where: { teamId: user.teamId },
     });
     return workflows;
   }
@@ -66,7 +67,6 @@ export class WorkflowService {
   ): Promise<string[]> {
     const workflows = await this.workflowRepo.find({
       where: {
-        clientId: user.clientId,
         teamId: user.teamId,
       },
     });
@@ -101,7 +101,6 @@ export class WorkflowService {
       description: dto.description ?? config.description,
       triggerQueue: config.triggerQueue,
       steps: dto.steps,
-      clientId: user.clientId,
       teamId: user.teamId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -111,12 +110,42 @@ export class WorkflowService {
 
   async findOne(user: UserRequest, id: string): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
-      where: { id, clientId: user.clientId, teamId: user.teamId },
+      where: { id, teamId: user.teamId },
     });
     if (!workflow) {
       throw new NotFoundException("Workflow not found");
     }
     return workflow;
+  }
+
+  async findWorkflowRuns(
+    user: UserRequest,
+    workflowId: string,
+    filters: FindWorkflowRunsQueryDto = {},
+  ): Promise<WorkflowRun[]> {
+    const query = this.workflowRunRepo
+      .createQueryBuilder("run")
+      .leftJoin("run.workflow", "workflow")
+      .where("run.workflowId = :workflowId", { workflowId })
+      .andWhere("workflow.teamId = :teamId", { teamId: user.teamId });
+    if (filters.onlyShowAwaitingActions) {
+      query.andWhere("run.status = :awaitingAction", {
+        awaitingAction: WorkflowRunStatus.AWAITING_ACTION,
+      });
+    } else {
+      if (filters.hideCompleted) {
+        query.andWhere("run.status != :completed", {
+          completed: WorkflowRunStatus.COMPLETED,
+        });
+      }
+      if (filters.hideSkipped) {
+        query.andWhere("run.status != :skipped", {
+          skipped: WorkflowRunStatus.SKIPPED,
+        });
+      }
+    }
+
+    return query.orderBy("run.createdAt", "DESC").getMany();
   }
 
   async updateSteps(
@@ -125,7 +154,7 @@ export class WorkflowService {
     dto: UpdateWorkflowStepsDto,
   ): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
-      where: { id, clientId: user.clientId, teamId: user.teamId },
+      where: { id, teamId: user.teamId },
     });
     if (!workflow) {
       throw new NotFoundException("Workflow not found");
@@ -163,10 +192,25 @@ export class WorkflowService {
     workflowId: string;
     context: Record<string, any>;
   }): Promise<WorkflowRun> {
+    // Plain `where: { context }` does not use the driver's JSON serialization (same as INSERT),
+    // so MySQL often fails to match existing rows. Compare using the same JSON string as persist.
+    const contextJson = JSON.stringify(context);
+    const existingRun = await this.workflowRunRepo
+      .createQueryBuilder("run")
+      .leftJoinAndSelect("run.workflow", "workflow")
+      .where("run.workflowId = :workflowId", { workflowId })
+      .andWhere("run.context = CAST(:contextJson AS JSON)", { contextJson })
+      .getOne();
+
+    if (existingRun) {
+      return existingRun;
+    }
     const workflowRun = this.workflowRunRepo.create({
       workflowId,
       context,
       status: WorkflowRunStatus.PENDING,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
     return this.workflowRunRepo.save(workflowRun);
   }
@@ -176,7 +220,7 @@ export class WorkflowService {
     updates: Partial<WorkflowRun>,
   ): Promise<WorkflowRun> {
     await this.workflowRunRepo.update(runId, updates);
-    return this.workflowRunRepo.findOne({ where: { id: runId } });
+    return this.findWorkflowRunById(runId);
   }
   async findWorkflowRunById(runId: string): Promise<WorkflowRun> {
     return this.workflowRunRepo.findOne({
@@ -187,11 +231,10 @@ export class WorkflowService {
 
   async findByTriggerQueue(
     triggerQueue: Events,
-    clientId: string,
     teamId: string,
   ): Promise<Workflow[]> {
     return this.workflowRepo.find({
-      where: { triggerQueue, clientId, teamId },
+      where: { triggerQueue, teamId },
     });
   }
 
@@ -211,13 +254,12 @@ export class WorkflowService {
         workflow.id
       }) with context ${JSON.stringify(context)}`,
     );
-    // TODO: implement workflow step execution
   }
 
   async delete(user: UserRequest, id: string): Promise<void> {
     await this.workflowRepo.remove(
       await this.workflowRepo.findOne({
-        where: { id, clientId: user.clientId, teamId: user.teamId },
+        where: { id, teamId: user.teamId },
       }),
     );
   }

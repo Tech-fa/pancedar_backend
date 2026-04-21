@@ -1,11 +1,11 @@
-import { ClientBaseEntity } from "../client/client-base";
-import { JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
+import { Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
 import { Column } from "typeorm";
 import { Explanation, WorkflowRunStatus } from "./dto";
 import { Workflow } from "./workflow.entity";
-export class WorkflowRun extends ClientBaseEntity {
+
+@Entity("workflow_runs")
+export class WorkflowRun {
   constructor(props: Partial<WorkflowRun>) {
-    super();
     Object.assign(this, props);
   }
 
@@ -31,7 +31,12 @@ export class WorkflowRun extends ClientBaseEntity {
   @Column({ name: "status", type: "varchar", length: 255 })
   status: WorkflowRunStatus;
 
-  @Column({ name: "current_step", type: "varchar", length: 255 })
+  @Column({
+    name: "current_step",
+    type: "varchar",
+    length: 255,
+    nullable: true,
+  })
   currentStep: string;
 
   @Column({ name: "steps_context", type: "json", nullable: true })

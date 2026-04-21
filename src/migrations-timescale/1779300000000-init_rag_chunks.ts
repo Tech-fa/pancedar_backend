@@ -7,7 +7,7 @@ export class InitRagChunks1779300000000 implements MigrationInterface {
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS vector`);
 
     await queryRunner.query(`
-      CREATE TABLE resource_chuncks (
+      CREATE TABLE resource_chunks (
         id uuid PRIMARY KEY,
         client_id varchar(36) NOT NULL,
         resource_id varchar(36) NOT NULL,
@@ -24,13 +24,13 @@ export class InitRagChunks1779300000000 implements MigrationInterface {
     `);
 
     await queryRunner.query(
-      `CREATE INDEX ON resource_chuncks (resource_id, resource_type)`,
+      `CREATE INDEX ON resource_chunks (resource_id, resource_type)`,
     );
     await queryRunner.query(
-      `CREATE INDEX ON resource_chuncks USING GIN (content_tsv)`,
+      `CREATE INDEX ON resource_chunks USING GIN (content_tsv)`,
     );
     await queryRunner.query(
-      `CREATE INDEX ON resource_chuncks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,
+      `CREATE INDEX ON resource_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,
     );
   }
 

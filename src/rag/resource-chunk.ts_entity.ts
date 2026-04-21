@@ -30,12 +30,13 @@ const vectorTransformer: ValueTransformer = {
 
 @Entity("resource_chunks")
 @Index(["resourceId", "resourceType"])
+@Index(["teamId"])
 export class ResourceChunk {
   @PrimaryColumn({ name: "id", type: "uuid" })
   id: string;
 
   @Column({ name: "client_id", type: "varchar", length: 36 })
-  clientId: string;
+  teamId: string;
 
   @Column({ name: "resource_id", type: "varchar", length: 36 })
   resourceId: string;

@@ -46,7 +46,6 @@ export class CategorizeEmailService {
             .map((c) => `- "${c.name}": ${c.description || "No description"}`)
             .join("\n")
         : "No categories defined";
-
     const prompt = `Analyze the following email and provide:
 1. The most appropriate category from the list below, or null if none match
 2. A brief summary of the email (2-3 sentences max)

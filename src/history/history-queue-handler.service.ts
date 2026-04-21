@@ -1,16 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { RabbitSubscribe } from '@golevelup/nestjs-rabbitmq';
-import { Events, getListening } from '../queue/queue-constants';
-import { Public } from '../util/constants';
-import { HistoryService } from './history.service';
+import { Injectable, Logger } from "@nestjs/common";
+import { RabbitSubscribe } from "@golevelup/nestjs-rabbitmq";
+import { Events, getListening } from "../queue/queue-constants";
+import { Public } from "../util/constants";
+import { HistoryService } from "./history.service";
 
 interface RecordHistoryPayload {
   entityType: string;
   entityId: string;
   changes: any;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN';
+  action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN";
   userId: string;
-  clientId: string;
+  teamId: string;
 }
 
 @Injectable()
@@ -28,13 +28,13 @@ export class HistoryQueueHandler {
         data.entityId,
         data.changes,
         data.action,
-        { id: data.userId, clientId: data.clientId } as any,
+        { id: data.userId } as any,
       );
       this.logger.log(
         `History recorded: ${data.action} on ${data.entityType}#${data.entityId}`,
       );
     } catch (error) {
-      this.logger.error('Failed to record history:', error);
+      this.logger.error("Failed to record history:", error);
     }
   }
 }

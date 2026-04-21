@@ -7,6 +7,7 @@ import {
   PrimaryColumn,
 } from "typeorm";
 import { Connector } from "../connector/connector.entity";
+import { WorkflowRun } from "src/workflows/workflow-run.entity";
 export enum EmailProcessingStatus {
   PENDING = "pending",
   PROCESSING = "processing",
@@ -75,4 +76,11 @@ export class UserIncomingEmail {
     type: "bigint",
   })
   createdAt: number;
+
+  @ManyToOne(() => WorkflowRun, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "workflow_run_id" })
+  workflowRun: WorkflowRun;
+
+  @Column({ name: "workflow_run_id", type: "varchar", length: 36, nullable: true })
+  workflowRunId: string;
 }

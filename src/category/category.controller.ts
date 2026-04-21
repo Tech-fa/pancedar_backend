@@ -12,7 +12,7 @@ import {
   UploadedFiles,
   UseInterceptors,
 } from "@nestjs/common";
-import type { Express, Response } from "express";
+import type { Response } from "express";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
 import { CategoryService } from "./category.service";
@@ -32,10 +32,9 @@ export class CategoryController {
     actions: ["read"],
   })
   async list(@Req() req, @Res() res: Response) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.findAll(clientId),
+      this.categoryService.findAll(req.user),
       res,
       "Email categories fetched successfully",
     );
@@ -47,10 +46,9 @@ export class CategoryController {
     actions: ["read"],
   })
   async getById(@Req() req, @Res() res: Response, @Param("id") id: string) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.findOne(clientId, id),
+      this.categoryService.findOne(id),
       res,
       "Email category fetched successfully",
     );
@@ -73,10 +71,9 @@ export class CategoryController {
     @Body() body: Record<string, unknown>,
     @UploadedFiles() files: Express.Multer.File[] = [],
   ) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.create(clientId, body, files),
+      this.categoryService.create(req.user, body, files),
       res,
       "Email category created successfully",
     );
@@ -100,10 +97,9 @@ export class CategoryController {
     @Body() body: Record<string, unknown>,
     @UploadedFiles() files: Express.Multer.File[] = [],
   ) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.update(clientId, id, body, files),
+      this.categoryService.update(req.user, id, body, files),
       res,
       "Email category updated successfully",
     );
@@ -115,10 +111,9 @@ export class CategoryController {
     actions: ["delete"],
   })
   async remove(@Req() req, @Res() res: Response, @Param("id") id: string) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.categoryService.delete(clientId, id),
+      this.categoryService.delete(req.user, id),
       res,
       "Email category deleted successfully",
     );

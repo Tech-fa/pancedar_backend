@@ -17,7 +17,6 @@ import { EmailHandlerModule } from "./email-handler/email-handler.module";
 import { QueueModule } from "./queue/queue.module";
 import { MediaModule } from "./media/media.module";
 import { ScheduleModule } from "@nestjs/schedule";
-import { ClientModule } from "./client/client.module";
 import { TeamModule } from "./team/team.module";
 import { ConnectorModule } from "./connector/connector.module";
 import { WorkflowModule } from "./workflows/workflow.module";
@@ -54,7 +53,6 @@ import { ResourceIngestionModule } from "./resource-ingestion/resource-ingestion
     QueueModule,
     MediaModule,
     ScheduleModule.forRoot(),
-    ClientModule,
     TeamModule,
     ConnectorModule,
     WorkflowModule,

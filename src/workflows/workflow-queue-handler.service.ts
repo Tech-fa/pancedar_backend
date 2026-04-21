@@ -6,6 +6,10 @@ import { WorkflowService } from "./workflow.service";
 import { UsersService } from "../user/user.service";
 import { QueuePublisher } from "../queue/queue.publisher";
 import { workflowConfigs } from "./workflow-config";
+import {
+  EmailWorkflowReplyPayload,
+  GmailWorkflowReplyPayload,
+} from "../email-handler/dto";
 
 interface ProcessIncomingEmailPayload {
   incomingEmailId: string;
@@ -44,7 +48,6 @@ export class WorkflowQueueHandler {
 
       const workflows = await this.workflowService.findByTriggerQueue(
         Events.PROCESS_INCOMING_EMAIL,
-        incomingEmail.connector.clientId,
         incomingEmail.connector.teamId,
       );
 
@@ -62,6 +65,8 @@ export class WorkflowQueueHandler {
             incomingEmailId: payload.incomingEmailId,
           },
         });
+        incomingEmail.workflowRunId = workflowRun.id;
+        await this.usersService.saveIncomingEmail(incomingEmail);
         this.logger.log(
           `Queuing workflow "${workflow.name}" (${workflow.id}) for email ${payload.incomingEmailId}`,
         );
@@ -75,8 +80,59 @@ export class WorkflowQueueHandler {
     } catch (error) {
       this.logger.error(
         `Error processing incoming email ${payload.incomingEmailId}`,
-        error,
+        error.stack,
       );
+    }
+  }
+
+  @RabbitSubscribe(getListening(Events.EMAIL_WORKFLOW_REPLY))
+  @Public()
+  async handleEmailWorkflowReply(payload: EmailWorkflowReplyPayload) {
+    try {
+      this.logger.log(
+        `Handling workflow reply routing for incoming email ${payload.incomingEmailId}`,
+      );
+
+      const incomingEmail = await this.usersService.findIncomingEmailById(
+        payload.incomingEmailId,
+        ["connector", "workflowRun", "workflowRun.workflow"],
+      );
+
+      if (!incomingEmail) {
+        this.logger.warn(`Incoming email ${payload.incomingEmailId} not found`);
+        return;
+      }
+
+      const workflowName = incomingEmail.workflowRun?.workflow?.name;
+      const connectorType = incomingEmail.connector?.connectorTypeId;
+      this.logger.log(
+        `Workflow reply for workflow "${
+          workflowName ?? "unknown"
+        }" using connector "${connectorType ?? "unknown"}"`,
+      );
+
+      if ((connectorType || "").toLowerCase() !== "gmail") {
+        this.logger.log(
+          `Skipping non-Gmail workflow reply for incoming email ${payload.incomingEmailId}`,
+        );
+        return;
+      }
+
+      const gmailPayload: GmailWorkflowReplyPayload = {
+        incomingEmailId: payload.incomingEmailId,
+        subject: payload.subject,
+        replyBody: payload.replyBody,
+      };
+      await this.queuePublisher.publish(
+        Events.EMAIL_WORKFLOW_REPLY_GMAIL,
+        gmailPayload,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error routing workflow reply for incoming email ${payload.incomingEmailId}`,
+        error.stack,
+      );
+      throw error;
     }
   }
 }

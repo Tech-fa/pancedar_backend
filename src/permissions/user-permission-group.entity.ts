@@ -8,12 +8,11 @@ import {
   Unique,
   Column,
 } from "typeorm";
-import { ClientBaseEntity } from "../client/client-base";
 import { Team } from "../team/team.entity";
 
 @Entity("user_permission_groups")
 @Unique(["user", "permissionGroup", "team"])
-export class UserPermissionGroup extends ClientBaseEntity {
+export class UserPermissionGroup {
   @PrimaryGeneratedColumn()
   id: number;
 

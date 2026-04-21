@@ -39,6 +39,7 @@ export class RagRetrievalService {
   async retrieve(
     resourceId: string,
     resourceType: "category" | "resource",
+    teamId: string,
     query: string,
     topK = 5,
   ): Promise<RetrievedChunk[]> {
@@ -46,8 +47,8 @@ export class RagRetrievalService {
     if (!cleanQuery) return [];
 
     const [vectorHits, bm25Hits] = await Promise.all([
-      this.vectorSearch(resourceId, resourceType, cleanQuery),
-      this.bm25Search(resourceId, resourceType, cleanQuery),
+      this.vectorSearch(resourceId, resourceType, teamId, cleanQuery),
+      this.bm25Search(resourceId, resourceType, teamId, cleanQuery),
     ]);
 
     const fused = this.rrfFuse(vectorHits, bm25Hits);
@@ -61,21 +62,20 @@ export class RagRetrievalService {
   private async vectorSearch(
     resourceId: string,
     resourceType: "category" | "resource",
+    teamId: string,
     query: string,
   ): Promise<RetrievedChunk[]> {
     const [embedding] = await this.embeddingService.embedBatch([query]);
     const vectorLiteral = `[${embedding.map((n) => n.toFixed(7)).join(',')}]`;
 
     const rows = await this.chunkRepo.query(
-      `
-      SELECT id, resource_id, resource_type, source_type, source_ref, content
-      FROM resource_chuncks
-      WHERE resource_id = $1
-        AND resource_type = $2
-      ORDER BY embedding <=> $2::vector
-      LIMIT $3
-      `,
-      [resourceId, resourceType, vectorLiteral, CANDIDATE_LIMIT],
+      `SELECT id, resource_id, resource_type, source_type, source_ref, content
+      FROM resource_chunks
+      WHERE resource_id = '${resourceId}'
+        AND resource_type = '${resourceType}'
+        AND team_id = '${teamId}'
+      ORDER BY embedding <=> '${vectorLiteral}'::vector
+      LIMIT ${CANDIDATE_LIMIT}`,
     );
 
     return rows.map((r: Record<string, unknown>) => this.rowToChunk(r));
@@ -85,17 +85,17 @@ export class RagRetrievalService {
     resourceId: string,
     resourceType: "category" | "resource",
     query: string,
+    teamId: string,
   ): Promise<RetrievedChunk[]> {
     const rows = await this.chunkRepo.query(
-      `
-      SELECT id, resource_id, resource_type, source_type, source_ref, content
-      FROM resource_chuncks
+      `SELECT id, resource_id, resource_type, source_type, source_ref, content
+      FROM resource_chunks
       WHERE resource_id = $1
         AND resource_type = $2
-        AND content_tsv @@ plainto_tsquery('english', $2)
-      ORDER BY ts_rank_cd(content_tsv, plainto_tsquery('english', $2)) DESC
-      LIMIT $3
-      `,
+        AND team_id = $3
+        AND content_tsv @@ plainto_tsquery('english', $4)
+      ORDER BY ts_rank_cd(content_tsv, plainto_tsquery('english', $3)) DESC
+      LIMIT $4`,
       [resourceId, resourceType, query, CANDIDATE_LIMIT],
     );
 

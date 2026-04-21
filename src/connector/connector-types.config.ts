@@ -6,19 +6,14 @@ interface FieldConfig {
   value?: string;
 }
 
-interface ConnectorTypeActionConfig {
-  name: string;
-  functionName: string;
-  description: string;
-  direction: "inbound" | "outbound";
-  fields: Record<string, FieldConfig>;
-}
 
 export interface ConnectorTypeConfig {
   name: string;
   description: string;
   serviceName: string;
   oauthUrl?: string;
+  /** API path prefix (no trailing slash); disconnect is DELETE `{disconnectPath}/{connectorId}`. */
+  disconnectPath?: string;
 }
 
 export const connectorTypesConfig: ConnectorTypeConfig[] = [
@@ -26,6 +21,7 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
     name: "Gmail",
     serviceName: "apiService",
     oauthUrl: `${process.env.API_URL}/gmail/oauth`,
+    disconnectPath: "/gmail/disconnect",
     description: "Generic API with token-based authentication",
   },
 ];

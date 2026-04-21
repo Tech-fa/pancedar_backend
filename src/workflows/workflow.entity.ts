@@ -1,22 +1,10 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-  OneToOne,
-  PrimaryGeneratedColumn,
-} from "typeorm";
-import { ClientBaseEntity } from "../client/client-base";
-import { bigintTransformer } from "../util/bigint-transformer";
+import { Column, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 import { Events } from "../queue/queue-constants";
 import { WorkflowStepDto } from "./dto";
 
 @Entity("workflows")
-export class Workflow extends ClientBaseEntity {
+export class Workflow {
   constructor(props: Partial<Workflow>) {
-    super();
     Object.assign(this, props);
   }
 
@@ -41,14 +29,12 @@ export class Workflow extends ClientBaseEntity {
   @Column({
     name: "created_at",
     type: "bigint",
-    transformer: bigintTransformer,
   })
   createdAt: number;
 
   @Column({
     name: "updated_at",
     type: "bigint",
-    transformer: bigintTransformer,
   })
   updatedAt: number;
 

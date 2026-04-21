@@ -16,7 +16,11 @@ import { WorkflowService } from "./workflow.service";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
 import { workflowPermission } from "../permissions/permissions";
-import { CreateWorkflowDto, UpdateWorkflowStepsDto } from "./dto";
+import {
+  CreateWorkflowDto,
+  FindWorkflowRunsQueryDto,
+  UpdateWorkflowStepsDto,
+} from "./dto";
 
 @Controller("workflows")
 export class WorkflowController {
@@ -87,6 +91,22 @@ export class WorkflowController {
     );
   }
 
+  @Get(":id/runs")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
+  async findRuns(
+    @Req() req,
+    @Res() res: Response,
+    @Param("id") id: string,
+    @Query() query: FindWorkflowRunsQueryDto,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.findWorkflowRuns(req.user, id, query),
+      res,
+      "Workflow runs fetched successfully",
+    );
+  }
+
   @Put(":id")
   @hasPermission({ subject: workflowPermission.subject, actions: ["update"] })
   async update(
@@ -106,10 +126,9 @@ export class WorkflowController {
   @Delete(":id")
   @hasPermission({ subject: workflowPermission.subject, actions: ["delete"] })
   async remove(@Req() req, @Res() res: Response, @Param("id") id: string) {
-    const clientId = req.user.clientId;
     return formatResponse(
       this.logger,
-      this.workflowService.delete(clientId, id),
+      this.workflowService.delete(req.user, id),
       res,
       "Workflow deleted successfully",
     );

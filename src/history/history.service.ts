@@ -9,14 +9,12 @@ import { PermissionService } from "../permissions/permission.service";
 import { PaginationDto } from "../common/pagination.dto";
 import { PaginatedResponse } from "../common/pagination.dto";
 import { permissions } from "../permissions/permissions";
-import { QueuePublisher } from "../queue/queue.publisher";
 @Injectable()
 export class HistoryService {
   constructor(
     @InjectRepository(History)
     private historyRepository: Repository<History>,
     private permissionService: PermissionService,
-    private readonly queuePublisher: QueuePublisher
   ) {}
 
   /**
@@ -27,7 +25,7 @@ export class HistoryService {
     entityId: string,
     changes: any,
     action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN",
-    user: UserRequest
+    user: UserRequest,
   ): Promise<History> {
     // Format values as strings if they are objects
     if (!user) {
@@ -40,21 +38,12 @@ export class HistoryService {
       changes,
       action,
       user: { id: user.id },
-      client: { id: user.clientId },
+      teamId: user.teamId,
       createdAt: Date.now(),
     });
 
     const saved = await this.historyRepository.save(history);
-    if (action !== "LOGIN") {
-      void this.queuePublisher.publishWorkflowTriggerChange({
-        entityType,
-        entityId,
-        changes: changes ?? {},
-        action,
-        clientId: user.clientId,
-        userId: user.id,
-      });
-    }
+
     return saved;
   }
 
@@ -68,7 +57,7 @@ export class HistoryService {
     oldValues: any,
     newValues: any,
     action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN",
-    user: UserRequest
+    user: UserRequest,
   ): Promise<void> {
     // Skip if entity is not tracked
     if (!shouldTrackEntity(entityClass)) {
@@ -78,7 +67,7 @@ export class HistoryService {
 
     // Determine which fields to track
     const fieldNames = Object.keys(newValues || oldValues || {}).filter(
-      (field) => !fieldsToExclude.includes(field)
+      (field) => !fieldsToExclude.includes(field),
     );
     const changes = {};
     // For creation, we record all fields with their initial values
@@ -114,7 +103,7 @@ export class HistoryService {
     user: UserRequest,
     entityType: string,
     entityId: string,
-    paginationDto: PaginationDto = { page: 1, perPage: 10 }
+    paginationDto: PaginationDto = { page: 1, perPage: 10 },
   ): Promise<PaginatedResponse<History>> {
     if (
       await this.permissionService.hasPermissions(user, entityType, ["read"])
@@ -122,12 +111,11 @@ export class HistoryService {
       const { page, perPage } = paginationDto;
       const skip = (page - 1) * perPage;
       entityType = Object.values(permissions).find(
-        (p) => p.subject === entityType
+        (p) => p.subject === entityType,
       )?.entityName;
       const qb = this.historyRepository
         .createQueryBuilder("history")
         .leftJoinAndSelect("history.user", "user")
-        .leftJoinAndSelect("history.client", "client")
         .where("history.entityType = :entityType", { entityType })
         .andWhere("history.entityId = :entityId", { entityId })
         .orderBy("history.createdAt", "DESC");
