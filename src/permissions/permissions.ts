@@ -156,6 +156,14 @@ export const workflowPermission = {
   base_route: "workflows",
 };
 
+export const costPermission = {
+  subject: "costs",
+  label: "LLM costs",
+  actions: [PermissionEnum.READ, PermissionEnum.MANAGE],
+  service_tag: "costs",
+  base_route: "costs",
+};
+
 export const emailWorkflowCategoryPermission = {
   subject: "email_workflow_categories",
   label: "Email Workflow Category",
@@ -208,6 +216,8 @@ export const permissions: {
   teamPermission,
   connectorPermission,
   incomingEmailsPermission,
+  permissionPermission,
+  costPermission,
 };
 
 export const permissionTree: {
@@ -219,6 +229,8 @@ export const permissionTree: {
   workflowPermission,
   connectorPermission,
   incomingEmailsPermission,
+  permissionPermission,
+  costPermission,
 };
 
 export const defaultPermissionGroups = [

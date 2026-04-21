@@ -83,7 +83,6 @@ export class UserController {
             fname: true,
             lname: true,
           },
-          userType: true,
         },
       ),
       res,

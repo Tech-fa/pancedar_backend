@@ -10,6 +10,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
+import { PaginationDto } from "../common/pagination.dto";
 
 export class WorkflowConditionItemDto {
   @IsOptional()
@@ -194,7 +195,7 @@ const toBoolean = ({ value }: { value: unknown }): boolean | undefined => {
   return undefined;
 };
 
-export class FindWorkflowRunsQueryDto {
+export class FindWorkflowRunsQueryDto extends PaginationDto {
   @IsOptional()
   @Transform(toBoolean)
   hideCompleted?: string;

@@ -26,6 +26,7 @@
     "migration:revert": "npm run typeorm migration:revert -- -d ./src/db/database.ts",
     "migration:data-migrate": "ts-node ./src/data-migrate.ts",
     "ts:migration:run": "npm run typeorm migration:run -- -d ./src/db/psql.ts",
+    "ts:migration:generate": "npm run typeorm migration:generate  -- -d ./src/db/psql.ts  ./src/migrations/$NAME",
     "ts:migration:revert": "npm run typeorm migration:revert -- -d ./src/db/psql.ts",
     "prod:migrate": "npm run migration:run && npm run migration:data-migrate && npm run ts:migration:run",
     "migration:reset": "ts-node ./src/drop-recreate-db.ts && npm run migration:run",

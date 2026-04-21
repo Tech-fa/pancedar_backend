@@ -2,11 +2,7 @@ import { connectionSource } from "./db/database";
 import { User } from "./user/user.entity";
 import { v4 as uuidv4 } from "uuid";
 import { hashPassword } from "./util/helper-util";
-import {
-  defaultPermissionGroups,
-  permissions,
-  PermissionScope,
-} from "./permissions/permissions";
+import { defaultPermissionGroups } from "./permissions/permissions";
 import { PermissionGroup } from "./permissions/permission-group.entity";
 import { UserPermissionGroup } from "./permissions/user-permission-group.entity";
 import { Team, TeamMember } from "./team/team.entity";

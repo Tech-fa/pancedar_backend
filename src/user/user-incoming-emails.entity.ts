@@ -45,29 +45,6 @@ export class UserIncomingEmail {
   @Column({ name: "attachments", type: "json", nullable: true })
   attachments: string[];
 
-  @Column({ name: "summary", type: "text", nullable: true })
-  summary: string;
-
-  @Column({ name: "has_unsubscribe", type: "boolean", default: false })
-  hasUnsubscribe: boolean;
-
-  @Column({ name: "is_processed", type: "boolean", default: false })
-  isProcessed: boolean;
-
-  @Column({
-    name: "processing_status",
-    type: "enum",
-    enum: EmailProcessingStatus,
-    default: EmailProcessingStatus.PENDING,
-  })
-  processingStatus: EmailProcessingStatus;
-
-  @Column({ name: "processed_at", type: "bigint", nullable: true })
-  processedAt: number;
-
-  @Column({ name: "processing_attempts", type: "int", default: 0 })
-  processingAttempts: number;
-
   @Column({ name: "creation_date", type: "bigint" })
   creationDate: number;
 

@@ -68,7 +68,7 @@ async function permissionDataMigrate() {
 
     console.log("Default permission groups seeded successfully");
   } catch (error) {
-    console.error("Seeding notification permissions failed:", error);
+    console.error("Data migration failed:", error);
   } finally {
     await dataSource.destroy();
   }

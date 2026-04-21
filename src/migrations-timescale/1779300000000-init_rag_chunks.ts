@@ -9,7 +9,7 @@ export class InitRagChunks1779300000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE resource_chunks (
         id uuid PRIMARY KEY,
-        client_id varchar(36) NOT NULL,
+        team_id varchar(36) NOT NULL,
         resource_id varchar(36) NOT NULL,
         resource_type varchar(16) NOT NULL,
         source_type varchar(16) NOT NULL,
@@ -21,6 +21,10 @@ export class InitRagChunks1779300000000 implements MigrationInterface {
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
       )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX idx_resource_chunks_team_id ON resource_chunks (team_id)
     `);
 
     await queryRunner.query(

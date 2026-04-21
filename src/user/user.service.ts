@@ -78,7 +78,6 @@ export class UsersService {
         "user.createdAt",
         "user.deleted",
         "user.failedLogins",
-        "user.userType",
         "pg.id",
         "pg2.name",
       ]);
@@ -173,6 +172,9 @@ export class UsersService {
     return { ...user, teamId: team.id };
   }
   async deleteIncomingEmails(connectorId: string) {
+    await this.incomingEmailRepository.query(
+      `DELETE workflow_runs from  workflow_runs inner join user_incoming_emails on workflow_runs.id = user_incoming_emails.workflow_run_id where user_incoming_emails.connector_id = '${connectorId}'`,
+    );
     await this.incomingEmailRepository.delete({
       connectorId,
     });
@@ -337,6 +339,10 @@ export class UsersService {
     }
 
     return { id: user.id };
+  }
+
+  async saveEmailToDb(incomingEmail: UserIncomingEmail) {
+    return await this.incomingEmailRepository.save(incomingEmail);
   }
 
   async saveIncomingEmail(data: {

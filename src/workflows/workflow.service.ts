@@ -19,6 +19,7 @@ import { workflowConfigs, workflowStepConfigs } from "./workflow-config";
 import { Events } from "../queue/queue-constants";
 import { WorkflowRun } from "./workflow-run.entity";
 import { ConnectorService } from "../connector/connector.service";
+import { PaginatedResponse } from "../common/pagination.dto";
 
 @Injectable()
 export class WorkflowService {
@@ -121,8 +122,11 @@ export class WorkflowService {
   async findWorkflowRuns(
     user: UserRequest,
     workflowId: string,
-    filters: FindWorkflowRunsQueryDto = {},
-  ): Promise<WorkflowRun[]> {
+    filters: Partial<FindWorkflowRunsQueryDto> = {},
+  ): Promise<PaginatedResponse<WorkflowRun>> {
+    const page = Math.max(1, filters.page ?? 1);
+    const perPage = Math.max(1, Math.min(filters.perPage ?? 10, 100));
+
     const query = this.workflowRunRepo
       .createQueryBuilder("run")
       .leftJoin("run.workflow", "workflow")
@@ -145,7 +149,19 @@ export class WorkflowService {
       }
     }
 
-    return query.orderBy("run.createdAt", "DESC").getMany();
+    query.orderBy("run.createdAt", "DESC");
+
+    const [data, totalCount] = await query
+      .skip((page - 1) * perPage)
+      .take(perPage)
+      .getManyAndCount();
+
+    return {
+      data,
+      currentPage: page,
+      totalCount,
+      perPage,
+    };
   }
 
   async updateSteps(

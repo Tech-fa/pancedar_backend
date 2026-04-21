@@ -67,7 +67,7 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no code
   "questions": "array of questions or null if no questions",
 }`;
 
-    const responseText = await this.llmService.completeUserPrompt(prompt);
+    const responseText = await this.llmService.completeUserPrompt(prompt,{teamId: context.teamId});
     return this.parseCategorizationResponse(responseText, categories);
   }
 

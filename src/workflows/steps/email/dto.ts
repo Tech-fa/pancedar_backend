@@ -18,6 +18,7 @@ export interface EmailAssistantPayload {
 }
 
 export interface CategorizeStepContext{
+  teamId: string;
   categories: EmailCategory[];
   incomingEmailId: string;
 }

@@ -21,6 +21,9 @@ export class BrowserService {
        browser = await puppeteer.launch({
         headless: true,
         args: PUPPETEER_ARGS,
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH
+          ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+          : {}),
       });
       const page = await browser.newPage();
       await page.setUserAgent(

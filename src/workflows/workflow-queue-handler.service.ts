@@ -66,7 +66,7 @@ export class WorkflowQueueHandler {
           },
         });
         incomingEmail.workflowRunId = workflowRun.id;
-        await this.usersService.saveIncomingEmail(incomingEmail);
+        await this.usersService.saveEmailToDb(incomingEmail);
         this.logger.log(
           `Queuing workflow "${workflow.name}" (${workflow.id}) for email ${payload.incomingEmailId}`,
         );

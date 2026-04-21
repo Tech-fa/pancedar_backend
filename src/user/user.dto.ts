@@ -1,7 +1,6 @@
-import { IsEmail } from 'class-validator';
-import { IsNotEmpty } from 'class-validator';
-import { IsString, IsOptional, IsEnum, IsArray } from 'class-validator';
-import { UserType } from './user.entity';
+import { IsEmail } from "class-validator";
+import { IsNotEmpty } from "class-validator";
+import { IsString, IsOptional, IsEnum, IsArray } from "class-validator";
 
 export class UserDTO {
   id: string;
@@ -16,16 +15,11 @@ export class UserDTO {
 
   password: string;
 
-
   workPhone: string;
 
   officeExtension: string;
 
   mobilePhone: string;
-
-  @IsOptional()
-  @IsEnum(UserType)
-  userType?: UserType;
 
   @IsOptional()
   @IsArray()

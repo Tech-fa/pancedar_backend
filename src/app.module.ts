@@ -23,6 +23,7 @@ import { WorkflowModule } from "./workflows/workflow.module";
 import { EmailAssistantModule } from "./workflows/email-assistant/email-assistant.module";
 import { GoogleModule } from "./connector/gmail/google.module";
 import { ResourceIngestionModule } from "./resource-ingestion/resource-ingestion.module";
+import { CostModule } from "./cost/cost.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -59,6 +60,7 @@ import { ResourceIngestionModule } from "./resource-ingestion/resource-ingestion
     EmailAssistantModule,
     GoogleModule,
     ResourceIngestionModule,
+    CostModule,
   ],
   controllers: [AppController],
   providers: [

@@ -105,7 +105,9 @@ ${resourceBlock}
 Write only the reply body text (no subject line). Be helpful and professional.`;
 
     try {
-      return (await this.llmService.completeUserPrompt(prompt)).trim();
+      return (
+        await this.llmService.completeUserPrompt(prompt, { teamId })
+      ).trim();
     } catch (error) {
       this.logger.error(
         "LLM reply generation failed, using summary fallback",

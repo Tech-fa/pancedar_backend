@@ -115,6 +115,7 @@ export class EmailAssistantService {
     const analysis = await this.categorizeService.runStep({
       incomingEmailId,
       categories,
+      teamId: workflowRun.workflow.teamId,
     });
     this.logger.log(
       `Categorized email ${incomingEmailId} as "${

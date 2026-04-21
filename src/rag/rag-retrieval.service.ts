@@ -55,7 +55,7 @@ export class RagRetrievalService {
     if (!fused.length) return [];
 
     const candidates = fused.slice(0, CANDIDATE_LIMIT);
-    const reranked = await this.llmRerank(cleanQuery, candidates, topK);
+    const reranked = await this.llmRerank(cleanQuery, candidates, topK, teamId);
     return reranked.length ? reranked : candidates.slice(0, topK);
   }
 
@@ -94,9 +94,9 @@ export class RagRetrievalService {
         AND resource_type = $2
         AND team_id = $3
         AND content_tsv @@ plainto_tsquery('english', $4)
-      ORDER BY ts_rank_cd(content_tsv, plainto_tsquery('english', $3)) DESC
-      LIMIT $4`,
-      [resourceId, resourceType, query, CANDIDATE_LIMIT],
+      ORDER BY ts_rank_cd(content_tsv, plainto_tsquery('english', $4)) DESC
+      LIMIT $5`,
+      [resourceId, resourceType, teamId, query, CANDIDATE_LIMIT],
     );
 
     return rows.map((r: Record<string, unknown>) => this.rowToChunk(r));
@@ -131,6 +131,7 @@ export class RagRetrievalService {
     query: string,
     candidates: RetrievedChunk[],
     topK: number,
+    teamId: string,
   ): Promise<RetrievedChunk[]> {
     if (candidates.length <= topK) return candidates;
 
@@ -153,6 +154,7 @@ Respond ONLY with JSON of the form {"ranked": [n1, n2, ...]} using the 1-based i
 
     try {
       const raw = await this.llmService.completeUserPrompt(prompt, {
+        teamId: teamId,
         maxTokens: 256,
       });
       const parsed = this.parseRankedIndices(raw, candidates.length);
