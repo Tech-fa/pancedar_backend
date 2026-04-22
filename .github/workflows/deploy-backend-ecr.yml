@@ -26,8 +26,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
 
 jobs:
   build-and-push:
@@ -50,11 +50,9 @@ jobs:
       - name: Build and push image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: pancedar
         run: |
           set -euo pipefail
           IMAGE_URI="${REGISTRY}/${{ env.ECR_REPOSITORY }}"
           docker build -t "${IMAGE_URI}:${IMAGE_TAG}" .
-          docker tag "${IMAGE_URI}:${IMAGE_TAG}" "${IMAGE_URI}:pancedar"
           docker push "${IMAGE_URI}:${IMAGE_TAG}"
-          docker push "${IMAGE_URI}:pancedar"
