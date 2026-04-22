@@ -11,19 +11,8 @@
 name: Deploy backend to ECR
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - "./**"
-      - ".github/workflows/deploy-backend-ecr.yml"
-
-permissions:
-  contents: read
-
-concurrency:
-  group: deploy-backend-ecr
-  cancel-in-progress: false
+    branches: [ main ]
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
