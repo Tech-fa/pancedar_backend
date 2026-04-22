@@ -4,18 +4,12 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { UsersService } from "../user/user.service";
 import { User } from "../user/user.entity";
-import { RegisterDTO, UserDTO } from "../user/user.dto";
+import { UserDTO } from "../user/user.dto";
 import { Otp } from "../user/otp.entity";
-import { PermissionGroup } from "../permissions/permission-group.entity";
-import { defaultPermissionGroups } from "../permissions/permissions";
-import { QueuePublisher } from "../queue/queue.publisher";
+import { QueuePublisher } from "../queue/queue.publisher";  
 import { EmailType } from "../common/dto";
 import { UserRequest } from "../permissions/dto";
-import { hashPassword } from "../util/helper-util";
-import { UserPermissionGroup } from "../permissions/user-permission-group.entity";
 import { TeamService } from "../team/team.service";
-import { Team, TeamMember } from "../team/team.entity";
-import { v4 as uuidv4 } from "uuid";
 @Injectable()
 export class AuthService {
   constructor(
@@ -38,6 +32,7 @@ export class AuthService {
       changes: {},
       action: "LOGIN",
       userId: user.id,
+      teamId: user.teamId,
     });
 
     return {

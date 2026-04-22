@@ -39,7 +39,7 @@ export class RagIngestionService {
     const pieces = this.chunkAll(sources);
 
     if (!pieces.length) {
-      await this.removeResource(params.resourceId);
+      await this.removeResource(params.resourceId, params.resourceType);
       return;
     }
 
@@ -61,6 +61,7 @@ export class RagIngestionService {
     await this.chunkRepo.manager.transaction(async (tx) => {
       await tx.delete(ResourceChunk, {
         resourceId: params.resourceId,
+        resourceType: params.resourceType,
       });
       await tx.save(ResourceChunk, rows, { chunk: 100 });
     });
@@ -70,8 +71,8 @@ export class RagIngestionService {
     );
   }
 
-  async removeResource(resourceId: string): Promise<void> {
-    await this.chunkRepo.delete({ resourceId });
+  async removeResource(resourceId: string,resourceType: "category" | "resource"): Promise<void> {
+    await this.chunkRepo.delete({ resourceId, resourceType });
   }
 
   async removeResources(

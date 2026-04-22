@@ -43,6 +43,8 @@ export class GoogleSerivce {
   async messageHandler(message) {
     try {
       this.logger.log(`received a message from google`);
+      message.ack();
+      return;
       const json = JSON.parse(Buffer.from(message.data).toString("utf8"));
       const inboxEmail = json["emailAddress"];
 

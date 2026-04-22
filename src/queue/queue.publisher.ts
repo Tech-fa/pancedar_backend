@@ -35,6 +35,7 @@ export class QueuePublisher {
     changes: any;
     action: string;
     userId: string;
+    teamId: string;
   }) {
     this.publish(Events.RECORD_HISTORY, data);
   }

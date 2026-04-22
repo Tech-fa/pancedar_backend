@@ -28,7 +28,7 @@ export class HistoryQueueHandler {
         data.entityId,
         data.changes,
         data.action,
-        { id: data.userId } as any,
+        { id: data.userId,teamId: data.teamId } as any,
       );
       this.logger.log(
         `History recorded: ${data.action} on ${data.entityType}#${data.entityId}`,

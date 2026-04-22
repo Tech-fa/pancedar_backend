@@ -35,7 +35,7 @@ export class ResourceChunk {
   @PrimaryColumn({ name: "id", type: "uuid" })
   id: string;
 
-  @Column({ name: "client_id", type: "varchar", length: 36 })
+  @Column({ name: "team_id", type: "varchar", length: 36 })
   teamId: string;
 
   @Column({ name: "resource_id", type: "varchar", length: 36 })
