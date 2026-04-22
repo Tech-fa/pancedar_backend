@@ -1,13 +1,6 @@
-# Slim package.json for dependency install (keeps devDependencies for the build stage)
-FROM alpine:3.20 AS package-slim
-RUN apk add --no-cache jq
-COPY package.json /tmp/
-RUN jq '{ dependencies, devDependencies }' </tmp/package.json >/tmp/package-slim.json
-
 FROM node:20-bookworm-slim AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    jq \
     python3 \
     make \
     g++ \
@@ -18,7 +11,7 @@ WORKDIR /app
 # Avoid downloading Puppeteer's bundled Chromium during npm ci; runtime image uses system Chromium.
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-COPY --from=package-slim /tmp/package-slim.json ./package.json
+COPY package.json ./
 COPY package-lock.json ./
 RUN npm ci --frozen-lockfile
 
