@@ -1,9 +1,10 @@
-FROM node:20-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
+  && npm install -g npm@^11.10.2 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -19,7 +20,7 @@ COPY . .
 RUN npm run build \
   && npm prune --omit=dev
 
-FROM node:20-bookworm-slim AS production
+FROM node:24-bookworm-slim AS production
 
 # Chromium for Puppeteer (browser.service); libgomp1 helps @xenova/transformers / onnxruntime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     fonts-liberation \
     libgomp1 \
+  && npm install -g npm@^11.10.2 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
