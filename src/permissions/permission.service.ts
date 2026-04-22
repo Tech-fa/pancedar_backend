@@ -237,9 +237,7 @@ export class PermissionService {
     return { id } as PermissionGroup;
   }
 
-  async getPermissionGroups(
-    name?: string,
-  ): Promise<PermissionGroup[]> {
+  async getPermissionGroups(name?: string): Promise<PermissionGroup[]> {
     const qb = this.permissionGroupRepository
       .createQueryBuilder("permissionGroup")
       .leftJoinAndSelect(
@@ -264,6 +262,17 @@ export class PermissionService {
     }
 
     return await qb.getMany();
+  }
+
+  async getAdminUsers(): Promise<string[]> {
+    const groups = await this.userPermissionGroupRepository
+      .createQueryBuilder("upg")
+      .innerJoin("upg.permissionGroup", "permissionGroup")
+      .innerJoin("upg.user", "user")
+      .andWhere("user.deleted = false")
+      .andWhere("permissionGroup.name = 'Admin'")
+      .getMany();
+    return groups.map((upg) => upg.userId);
   }
 
   async getPermissionGroupByName(name: string): Promise<PermissionGroup> {
@@ -306,9 +315,7 @@ export class PermissionService {
     return group;
   }
 
-  async getAdminUsersOtherThan(
-    userId: string,
-  ): Promise<User[]> {
+  async getAdminUsersOtherThan(userId: string): Promise<User[]> {
     return await this.userPermissionGroupRepository
       .createQueryBuilder("upg")
       .innerJoin("upg.permissionGroup", "permissionGroup")
@@ -398,8 +405,6 @@ export class PermissionService {
       await this.userPermissionGroupRepository.save(recordsToSave);
     }
 
-    await this.cacheService.evictData(
-      `${CACHE_PREFIX}_user_${userId}`,
-    );
+    await this.cacheService.evictData(`${CACHE_PREFIX}_user_${userId}`);
   }
 }

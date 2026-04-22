@@ -7,7 +7,7 @@ import {
   PrimaryColumn,
 } from "typeorm";
 import { Connector } from "../connector/connector.entity";
-import { WorkflowRun } from "src/workflows/workflow-run.entity";
+import { WorkflowRun } from "../workflows/workflow-run.entity";
 export enum EmailProcessingStatus {
   PENDING = "pending",
   PROCESSING = "processing",

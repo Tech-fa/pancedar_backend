@@ -44,8 +44,14 @@ export class GoogleSerivce {
     try {
       this.logger.log(`received a message from google`);
 
+      if (this.configService.get("SKIP_GMAIL_SYNC") == "true") {
+        this.logger.log(`Skipping Gmail sync`);
+        message.ack();
+        return;
+      }
       const json = JSON.parse(Buffer.from(message.data).toString("utf8"));
       const inboxEmail = json["emailAddress"];
+
 
       // Find credential by inbox email
       const connector = await this.connectorService.findOneByPrimaryIdentifier(

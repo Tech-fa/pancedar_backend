@@ -165,7 +165,12 @@ export class TeamService {
       updatedAt: now,
     });
 
-    return this.teamRepository.save(team);
+    const newTeam = await this.teamRepository.save(team);
+    const admins = await this.permissionService.getAdminUsers();
+    for (const admin of admins) {
+      await this.setAsAdmin(admin);
+    }
+    return newTeam;
   }
 
   async update(id: string, dto: UpdateTeamDto): Promise<Team> {

@@ -20,6 +20,9 @@ export class UserPermissionGroup {
   @JoinColumn({ name: "user_id" })
   user: User;
 
+  @Column({ name: "user_id", type: "varchar", length: 36 })
+  userId: string;
+
   @ManyToOne(() => Team)
   @JoinColumn({ name: "team_id" })
   team: Team;

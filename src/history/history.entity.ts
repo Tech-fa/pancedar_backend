@@ -7,7 +7,7 @@ import {
   Index,
 } from "typeorm";
 import { User } from "../user/user.entity";
-import { Team } from "src/team/team.entity";
+import { Team } from "../team/team.entity";
 
 @Entity("histories")
 @Index(["entityId", "entityType"])
