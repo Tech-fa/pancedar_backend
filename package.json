@@ -36,7 +36,8 @@
     "prod:ts:migration:run": "npm run ts:migration:run:dist",
     "migration:reset": "ts-node ./src/drop-recreate-db.ts && npm run migration:run",
     "migration:recreate": "ts-node ./src/drop-recreate-db.ts",
-    "create:login": "ts-node ./src/create-login.ts"
+    "create:login": "ts-node ./src/create-login.ts",
+    "create:login:dist": "node ./dist/create-login.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.911.0",
