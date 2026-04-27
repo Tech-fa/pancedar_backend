@@ -28,7 +28,7 @@ export class GoogleCron {
       await this.cache.setData("RENEW_WATCH_KEY", "1", 1800);
       const twoDaysAgo = new Date().valueOf() - 24 * 2 * 60 * 60 * 1000;
       const results = await query.query(
-        `select c.id as id from connectors c where c.status = 'active' and ${twoDaysAgo} > COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(c.credentials, '$.watcher_date')) AS UNSIGNED), 0)`,
+        `select c.id as id from connectors c where c.status = 'active' and c.name = 'Gmail' and ${twoDaysAgo} > COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(c.credentials, '$.watcher_date')) AS UNSIGNED), 0)`,
       );
       for (const { id } of results) {
         this.logger.log(`publishing renew watch event for user ${id}`);

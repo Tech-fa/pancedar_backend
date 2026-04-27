@@ -9,15 +9,13 @@ export const EMBEDDING_DIM = 384;
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 
 @Injectable()
-export class EmbeddingService implements OnModuleInit {
+export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
   private pipelinePromise: Promise<FeatureExtractionPipeline> | null = null;
-
-  async onModuleInit(): Promise<void> {
-    void this.getPipeline().catch((err) =>
-      this.logger.error('Failed to preload embedding model', err),
-    );
+  constructor() {
+    this.getPipeline();
   }
+  
 
   async embed(text: string): Promise<number[]> {
     const vectors = await this.embedBatch([text]);

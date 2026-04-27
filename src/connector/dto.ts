@@ -16,6 +16,10 @@ export enum ConnectorStatus {
   ERROR = "error",
   WARNING = "warning",
 }
+export class AddConnectionDto {
+  connectorTypeName: string;
+  credentials?: Record<string, any>;
+}
 export class CreateConnectorDto {
   @IsString()
   @IsNotEmpty()
@@ -97,8 +101,3 @@ export class UpdateConnectorTypeActionDto {
     { type: string; label: string; required?: boolean }
   > | null;
 }
-
-
-
-
-

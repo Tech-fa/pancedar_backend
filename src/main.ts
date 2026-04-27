@@ -1,5 +1,6 @@
 import { Logger, LogLevel, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
 import 'source-map-support/register';
 import {
@@ -54,6 +55,8 @@ async function bootstrap() {
 
   app.use(json({ limit: '100kb' }));
   app.use(urlencoded({ limit: '100kb', extended: true }));
+
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   // Enable CORS
   app.enableCors();

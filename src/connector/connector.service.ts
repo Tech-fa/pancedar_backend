@@ -7,7 +7,12 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { Connector } from "./connector.entity";
-import { CreateConnectorDto, UpdateConnectorDto, ConnectorStatus } from "./dto";
+import {
+  CreateConnectorDto,
+  UpdateConnectorDto,
+  ConnectorStatus,
+  AddConnectionDto,
+} from "./dto";
 import { decrypt, encrypt } from "../util/helper-util";
 import { UserRequest } from "../permissions/dto";
 import {
@@ -26,9 +31,24 @@ export class ConnectorService {
     return connectorTypesConfig.find((t) => t.name === name);
   }
 
+  listTypeConfigsForClient(): Pick<
+    ConnectorTypeConfig,
+    "name" | "description" | "serviceName" | "oauthUrl" | "fields"
+  >[] {
+    return connectorTypesConfig.map(
+      ({ name, description, serviceName, oauthUrl, fields }) => ({
+        name,
+        description,
+        serviceName,
+        oauthUrl,
+        fields,
+      }),
+    );
+  }
+
   async addConnection(
     user: UserRequest,
-    connectorTypeName: string,
+    { connectorTypeName, credentials }: AddConnectionDto,
   ): Promise<Connector> {
     const typeConfig = this.findTypeByName(connectorTypeName);
     if (!typeConfig) {
@@ -38,12 +58,12 @@ export class ConnectorService {
     }
 
     const now = Date.now();
-
+    const primaryIdentifier = typeConfig.fields?.find((f) => f.isPrimaryIdentifier)?.name;
     const connector = this.connectorRepo.create({
       name: typeConfig.name,
       connectorTypeId: connectorTypeName,
-      primaryIdentifier: `${connectorTypeName}-${now}`,
-      credentials: {},
+      primaryIdentifier: credentials[primaryIdentifier] || `${connectorTypeName}-${now}`,
+      credentials,
       status: typeConfig.oauthUrl
         ? ConnectorStatus.PENDING
         : ConnectorStatus.ACTIVE,
@@ -156,6 +176,16 @@ export class ConnectorService {
     if (dto.name?.trim()) connector.name = dto.name.trim();
 
     if (dto.status !== undefined) connector.status = dto.status;
+
+    if (dto.credentials !== undefined && dto.credentials !== null) {
+      connector.credentials = {
+        ...(connector.credentials || {}),
+        ...dto.credentials,
+      };
+      if (dto.credentials["Twilio Phone Number"]) {
+        connector.primaryIdentifier = dto.credentials["Twilio Phone Number"];
+      }
+    }
 
     connector.updatedAt = Date.now();
     await this.connectorRepo.save(connector);

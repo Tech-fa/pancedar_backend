@@ -22,6 +22,7 @@ import { ConnectorModule } from "./connector/connector.module";
 import { WorkflowModule } from "./workflows/workflow.module";
 import { EmailAssistantModule } from "./workflows/email-assistant/email-assistant.module";
 import { GoogleModule } from "./connector/gmail/google.module";
+import { TwilioVoiceModule } from "./connector/twilio/twilio-voice.module";
 import { ResourceIngestionModule } from "./resource-ingestion/resource-ingestion.module";
 import { CostModule } from "./cost/cost.module";
 @Module({
@@ -59,6 +60,7 @@ import { CostModule } from "./cost/cost.module";
     WorkflowModule,
     EmailAssistantModule,
     GoogleModule,
+    TwilioVoiceModule,  
     ResourceIngestionModule,
     CostModule,
   ],

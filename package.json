@@ -27,6 +27,7 @@
     "migration:revert": "npm run typeorm migration:revert -- -d ./src/db/database.ts",
     "migration:data-migrate": "ts-node ./src/data-migrate.ts",
     "migration:data-migrate:dist": "node ./dist/data-migrate.js",
+    "test:llm-agent": "ts-node -r tsconfig-paths/register ./src/llm-integration/llm-agent-test.ts",
     "ts:migration:run": "npm run typeorm migration:run -- -d ./src/db/psql.ts",
     "ts:migration:run:dist": "node ./node_modules/typeorm/cli.js migration:run -d ./dist/db/psql.js",
     "ts:migration:generate": "npm run typeorm migration:generate  -- -d ./src/db/psql.ts  ./src/migrations/$NAME",
@@ -53,8 +54,10 @@
     "@nestjs/jwt": "^11.0.1",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.6",
+    "@nestjs/platform-ws": "^11.1.19",
     "@nestjs/schedule": "^6.0.1",
     "@nestjs/typeorm": "^11.0.0",
+    "@nestjs/websockets": "^11.1.19",
     "@sendgrid/mail": "^8.1.4",
     "@xenova/transformers": "2.0.1",
     "axios": "~1.15.0",
@@ -80,9 +83,11 @@
     "rimraf": "^6.1.0",
     "source-map-support": "^0.5.21",
     "tesseract.js": "^7.0.0",
+    "twilio": "^6.0.0",
     "typeorm": "^0.3.21",
     "uuid": "^13.0.0",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.5",
@@ -95,6 +100,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^6.0.3",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.28.0",
     "@typescript-eslint/parser": "^8.28.0",
     "eslint": "^9.23.0",
@@ -111,7 +117,7 @@
   },
   "resolutions": {
     "protobufjs": "7.5.5",
-    "onnxruntime-web":"1.24.3"
+    "onnxruntime-web": "1.24.3"
   },
   "jest": {
     "moduleFileExtensions": [

@@ -34,7 +34,7 @@ export class GoogleRabbitHandler {
     } catch (error) {
       this.logger.error(
         `Error renewing watch for connector ${payload.connectorId}`,
-        error,
+        error.stack,
       );
     }
   }

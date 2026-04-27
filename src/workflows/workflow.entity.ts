@@ -3,6 +3,7 @@ import { Events } from "../queue/queue-constants";
 import { WorkflowStepDto } from "./dto";
 
 @Entity("workflows")
+@Index(["name", "teamId"], { unique: true })
 export class Workflow {
   constructor(props: Partial<Workflow>) {
     Object.assign(this, props);

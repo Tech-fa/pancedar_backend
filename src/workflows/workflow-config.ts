@@ -15,6 +15,12 @@ export const workflowConfigs = {
     processQueue: Events.EMAIL_ASSISTANT,
     entitiesNeeded: ["email_workflow_categories", "incoming_emails"],
   },
+  "voice-assistant": {
+    description: "Voice assistant that replies to voice calls based on the context of the call and the available resources of your set categories",
+    steps: [ "Answer Calls"],
+    connectorsNeeded: ["Twilio"],
+    entitiesNeeded: ["email_workflow_categories"],
+  },
 };
 
 export const workflowStepConfigs = {

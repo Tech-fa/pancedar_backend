@@ -15,12 +15,9 @@ import { ConnectorService } from "./connector.service";
 import { formatResponse } from "../util/helper-util";
 import { hasPermission } from "../authentication/permission.decorator";
 import { connectorPermission } from "../permissions/permissions";
-import { CreateConnectorDto, UpdateConnectorDto } from "./dto";
+import { AddConnectionDto, CreateConnectorDto, UpdateConnectorDto } from "./dto";
 
-class AddConnectionDto {
-  connectorTypeName: string;
-  name?: string;
-}
+
 
 @Controller("connectors")
 export class ConnectorController {
@@ -36,6 +33,17 @@ export class ConnectorController {
       this.connectorService.findAll(req.user),
       res,
       "Connectors fetched successfully",
+    );
+  }
+
+  @Get("types")
+  @hasPermission({ subject: connectorPermission.subject, actions: ["read"] })
+  async listTypes(@Res() res: Response) {
+    return formatResponse(
+      this.logger,
+      Promise.resolve(this.connectorService.listTypeConfigsForClient()),
+      res,
+      "Connector types fetched successfully",
     );
   }
 
@@ -77,7 +85,7 @@ export class ConnectorController {
       (async () => {
         const connector = await this.connectorService.addConnection(
           req.user,
-          dto.connectorTypeName,
+          dto
         );
         const typeConfig = this.connectorService.findTypeByName(
           dto.connectorTypeName,

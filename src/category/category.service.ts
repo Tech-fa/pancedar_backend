@@ -36,18 +36,15 @@ export class CategoryService {
     body: Record<string, unknown>,
     uploadedFiles: Express.Multer.File[] = [],
   ): Promise<WorkflowEmailCategory> {
-    const dto = Object.assign(new CreateWorkflowEmailCategoryDto(), body);
-    if (!dto.resource) {
-      dto.resource = new CategoryResourceInputDto();
-    }
+    const dto = Object.assign(
+      new CreateWorkflowEmailCategoryDto(),
+      JSON.parse(body.resource as string),
+    );
     if (uploadedFiles.length > 0) {
-      dto.resource.files = await this.s3Service.uploadFiles(
-        uploadedFiles,  
-        user.teamId,
-      );
+      dto.files = await this.s3Service.uploadFiles(uploadedFiles, user.teamId);
     }
 
-    const name = dto.name.trim();
+    const name = (body.name as string).trim();
     if (await this.existsByTeamAndName(user.teamId, name)) {
       throw new BadRequestException("A category with this name already exists");
     }
@@ -55,7 +52,7 @@ export class CategoryService {
     const now = Date.now();
     const category = this.categoryRepo.create({
       name,
-      description: dto.description ?? null,
+      description: (body.description as string) ?? null,
       createdAt: now,
       updatedAt: now,
       teamId: user.teamId,
@@ -63,9 +60,9 @@ export class CategoryService {
 
     const saved = await this.categoryRepo.save(category);
     const resource = this.resourceRepo.create({
-      files: dto.resource.files,
-      links: dto.resource.links,
-      textResource: dto.resource.textResource,
+      files: dto.files,
+      links: dto.links,
+      textResource: dto.textResource,
       categoryId: saved.id,
     });
     await this.resourceRepo.save(resource);
@@ -117,16 +114,13 @@ export class CategoryService {
     body: Record<string, unknown>,
     uploadedFiles: Express.Multer.File[] = [],
   ): Promise<WorkflowEmailCategory> {
-    const dto = Object.assign(new CreateWorkflowEmailCategoryDto(), JSON.parse(body.resource as string));
-    
+    const dto = Object.assign(
+      new CreateWorkflowEmailCategoryDto(),
+      JSON.parse(body.resource as string),
+    );
+
     if (uploadedFiles.length > 0) {
-      if (!dto.resource) {
-        dto.resource = new CategoryResourceInputDto();
-      }
-      dto.resource.files = await this.s3Service.uploadFiles(
-        uploadedFiles,
-        user.teamId,
-      );
+      dto.files = await this.s3Service.uploadFiles(uploadedFiles, user.teamId);
     }
 
     const category = await this.categoryRepo.findOne({
@@ -160,11 +154,11 @@ export class CategoryService {
       id: dto.id,
       categoryId: category.id,
     });
-    
+
     category.updatedAt = Date.now();
     const saved = await this.categoryRepo.save(category);
     await this.resourceRepo.save(category.resource);
-      this.ingestResourcesInBackground(user.teamId, category.resource);
+    this.ingestResourcesInBackground(user.teamId, category.resource);
     return saved;
   }
 

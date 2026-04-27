@@ -1,12 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import {
-  ChunkSourceType,
-  ResourceChunk,
-} from './resource-chunk.ts_entity';
-import { EmbeddingService } from '../embedding/embedding.service';
-import { LlmService } from '../llm-integration/llm.service';
+import { Injectable, Logger } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { ChunkSourceType, ResourceChunk } from "./resource-chunk.ts_entity";
+import { EmbeddingService } from "../embedding/embedding.service";
+import { LlmService } from "../llm-integration/llm.service";
 
 export interface RetrievedChunk {
   id: string;
@@ -25,7 +22,7 @@ export class RagRetrievalService {
   private readonly logger = new Logger(RagRetrievalService.name);
 
   constructor(
-    @InjectRepository(ResourceChunk, 'psql')
+    @InjectRepository(ResourceChunk, "psql")
     private readonly chunkRepo: Repository<ResourceChunk>,
     private readonly embeddingService: EmbeddingService,
     private readonly llmService: LlmService,
@@ -42,13 +39,26 @@ export class RagRetrievalService {
     teamId: string,
     query: string,
     topK = 5,
+    skipResourceId = false,
   ): Promise<RetrievedChunk[]> {
     const cleanQuery = query.trim();
     if (!cleanQuery) return [];
 
     const [vectorHits, bm25Hits] = await Promise.all([
-      this.vectorSearch(resourceId, resourceType, teamId, cleanQuery),
-      this.bm25Search(resourceId, resourceType, teamId, cleanQuery),
+      this.vectorSearch(
+        resourceId,
+        resourceType,
+        teamId,
+        cleanQuery,
+        skipResourceId,
+      ),
+      this.bm25Search(
+        resourceId,
+        resourceType,
+        teamId,
+        cleanQuery,
+        skipResourceId,
+      ),
     ]);
 
     const fused = this.rrfFuse(vectorHits, bm25Hits);
@@ -64,15 +74,18 @@ export class RagRetrievalService {
     resourceType: "category" | "resource",
     teamId: string,
     query: string,
+    skipResourceId: boolean,
   ): Promise<RetrievedChunk[]> {
     const [embedding] = await this.embeddingService.embedBatch([query]);
-    const vectorLiteral = `[${embedding.map((n) => n.toFixed(7)).join(',')}]`;
+    const vectorLiteral = `[${embedding.map((n) => n.toFixed(7)).join(",")}]`;
 
+    const resourceClause = skipResourceId
+      ? ""
+      : `resource_id = '${resourceId}' AND `;
     const rows = await this.chunkRepo.query(
       `SELECT id, resource_id, resource_type, source_type, source_ref, content
       FROM resource_chunks
-      WHERE resource_id = '${resourceId}'
-        AND resource_type = '${resourceType}'
+      WHERE ${resourceClause}resource_type = '${resourceType}'
         AND team_id = '${teamId}'
       ORDER BY embedding <=> '${vectorLiteral}'::vector
       LIMIT ${CANDIDATE_LIMIT}`,
@@ -84,20 +97,30 @@ export class RagRetrievalService {
   private async bm25Search(
     resourceId: string,
     resourceType: "category" | "resource",
-    query: string,
     teamId: string,
+    query: string,
+    skipResourceId: boolean,
   ): Promise<RetrievedChunk[]> {
-    const rows = await this.chunkRepo.query(
-      `SELECT id, resource_id, resource_type, source_type, source_ref, content
+    const sql = skipResourceId
+      ? `SELECT id, resource_id, resource_type, source_type, source_ref, content
+      FROM resource_chunks
+      WHERE resource_type = $1
+        AND team_id = $2
+        AND content_tsv @@ plainto_tsquery('english', $3)
+      ORDER BY ts_rank_cd(content_tsv, plainto_tsquery('english', $3)) DESC
+      LIMIT $4`
+      : `SELECT id, resource_id, resource_type, source_type, source_ref, content
       FROM resource_chunks
       WHERE resource_id = $1
         AND resource_type = $2
         AND team_id = $3
         AND content_tsv @@ plainto_tsquery('english', $4)
       ORDER BY ts_rank_cd(content_tsv, plainto_tsquery('english', $4)) DESC
-      LIMIT $5`,
-      [resourceId, resourceType, teamId, query, CANDIDATE_LIMIT],
-    );
+      LIMIT $5`;
+    const params = skipResourceId
+      ? [resourceType, teamId, query, CANDIDATE_LIMIT]
+      : [resourceId, resourceType, teamId, query, CANDIDATE_LIMIT];
+    const rows = await this.chunkRepo.query(sql, params);
 
     return rows.map((r: Record<string, unknown>) => this.rowToChunk(r));
   }
@@ -138,9 +161,11 @@ export class RagRetrievalService {
     const numbered = candidates
       .map(
         (c, i) =>
-          `[${i + 1}] ${c.content.slice(0, RERANK_SNIPPET_CHARS).replace(/\s+/g, ' ')}`,
+          `[${i + 1}] ${c.content
+            .slice(0, RERANK_SNIPPET_CHARS)
+            .replace(/\s+/g, " ")}`,
       )
-      .join('\n');
+      .join("\n");
 
     const prompt = `You are a relevance ranker. Pick the ${topK} passages most useful for answering the query.
 
@@ -171,7 +196,9 @@ Respond ONLY with JSON of the form {"ranked": [n1, n2, ...]} using the 1-based i
       return ordered.length ? ordered : candidates.slice(0, topK);
     } catch (err) {
       this.logger.warn(
-        `LLM rerank failed, falling back to RRF order: ${(err as Error).message}`,
+        `LLM rerank failed, falling back to RRF order: ${
+          (err as Error).message
+        }`,
       );
       return candidates.slice(0, topK);
     }

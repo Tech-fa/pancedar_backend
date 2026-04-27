@@ -100,7 +100,7 @@ export class WorkflowService {
     const workflow = this.workflowRepo.create({
       name: dto.name,
       description: dto.description ?? config.description,
-      triggerQueue: config.triggerQueue,
+      triggerQueue: config.triggerQueue || "N/A",
       steps: dto.steps,
       teamId: user.teamId,
       createdAt: Date.now(),
@@ -199,6 +199,34 @@ export class WorkflowService {
 
     workflow.updatedAt = Date.now();
     return this.workflowRepo.save(workflow);
+  }
+
+  async createWorkflowRunFromPrimaryIdentifier({
+    primaryIdentifier,
+    workflowName,
+  }: {
+    primaryIdentifier: string;
+    workflowName: string;
+  }): Promise<WorkflowRun> {
+    const workflowId = (
+      await this.workflowRepo.query(
+        `SELECT id FROM workflows where name = '${workflowName}' and team_id = (select team_id from connectors where primary_identifier = '${primaryIdentifier}')`,
+      )
+    )?.[0]?.id;
+    if (!workflowId) {
+      throw new NotFoundException("Workflow not found");
+    }
+    return await this.workflowRunRepo.save(
+      new WorkflowRun({
+        workflowId,
+        context: {
+          primaryIdentifier,
+        },
+        status: WorkflowRunStatus.PENDING,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
   }
 
   async createWorkflowRun({
