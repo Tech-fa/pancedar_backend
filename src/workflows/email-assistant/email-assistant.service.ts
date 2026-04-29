@@ -207,6 +207,10 @@ export class EmailAssistantService {
             ...draft,
           },
         },
+        completedView: {
+          subject: "incoming_emails",
+          id: draft.incomingEmailId,
+        },
         updatedAt: now,
       },
     );

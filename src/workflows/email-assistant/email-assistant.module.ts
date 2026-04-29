@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { UsersModule } from "../../user/user.module";
-import { LlmIntegrationModule } from "../../llm-integration/llm-integration.module";
 import { CategoryModule } from "../../category/category.module";
 import { QueueModule } from "../../queue/queue.module";
 import { CategorizeEmailService } from "../steps/email/categorize.service";
@@ -19,7 +18,6 @@ import { RagModule } from "../../rag/rag.module";
   imports: [
     TypeOrmModule.forFeature([Workflow, WorkflowRun]),
     UsersModule,
-    LlmIntegrationModule,
     CategoryModule,
     QueueModule,
     ConnectorModule,

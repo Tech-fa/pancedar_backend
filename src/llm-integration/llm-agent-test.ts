@@ -4,7 +4,6 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { LlmAgent } from "./llm-agent";
 import { RagRetrievalService } from "../rag/rag-retrieval.service";
-import { LlmService } from "./llm.service";
 import { CostService } from "src/cost/cost.service";
 import { Cost } from "src/cost/cost.entity";
 import { EmbeddingService } from "src/embedding/embedding.service";
@@ -34,15 +33,15 @@ async function main(): Promise<void> {
 
   const costRepository = dataSource.getRepository(Cost);
   const costService = new CostService(costRepository);
-  const llmService = new LlmService(config, costService);
   const embeddingService = new EmbeddingService();
   const chunkRepository = psqlDataSource.getRepository(ResourceChunk);
   const ragRetrievalService = new RagRetrievalService(
     chunkRepository,
     embeddingService,
-    llmService,
   );
-  const agent = new LlmAgent(config, ragRetrievalService);
+  const agent = new LlmAgent(config, ragRetrievalService, null, {
+    source: "test",
+  });
   let shouldExit = false;
 
   console.log("Interactive LLM agent test");

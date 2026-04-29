@@ -1,7 +1,7 @@
-import 'reflect-metadata';
+import "reflect-metadata";
 
-const TRACK_CHANGES_METADATA_KEY = 'changelog:track_changes';
-const EXCLUDE_CHANGES_FIELDS_METADATA_KEY = 'changelog:excluded_fields';
+const TRACK_CHANGES_METADATA_KEY = "changelog:track_changes";
+const EXCLUDE_CHANGES_FIELDS_METADATA_KEY = "changelog:excluded_fields";
 
 /**
  * Decorator to mark an entity class for changelog tracking
@@ -9,7 +9,7 @@ const EXCLUDE_CHANGES_FIELDS_METADATA_KEY = 'changelog:excluded_fields';
 export function TrackChanges(): ClassDecorator {
   return (target: any) => {
     Reflect.defineMetadata(TRACK_CHANGES_METADATA_KEY, true, target);
-    
+
     // If no specific fields are marked for tracking, we'll track all fields
     if (!Reflect.hasMetadata(EXCLUDE_CHANGES_FIELDS_METADATA_KEY, target)) {
       Reflect.defineMetadata(EXCLUDE_CHANGES_FIELDS_METADATA_KEY, [], target);
@@ -22,15 +22,16 @@ export function TrackChanges(): ClassDecorator {
  */
 export function ExcludeField(): PropertyDecorator {
   return (target: any, propertyKey: string | symbol) => {
-    const fieldsToExclude: (string | symbol)[] = Reflect.getMetadata(
+    const fieldsToExclude: (string | symbol)[] =
+      Reflect.getMetadata(
         EXCLUDE_CHANGES_FIELDS_METADATA_KEY,
-      target.constructor,
-    ) || [];
-    
+        target.constructor,
+      ) || [];
+
     fieldsToExclude.push(propertyKey);
-    
+
     Reflect.defineMetadata(
-        EXCLUDE_CHANGES_FIELDS_METADATA_KEY,
+      EXCLUDE_CHANGES_FIELDS_METADATA_KEY,
       fieldsToExclude,
       target.constructor,
     );
@@ -41,10 +42,17 @@ export function ExcludeField(): PropertyDecorator {
  * Utility functions to check if an entity or field should be tracked
  */
 export function shouldTrackEntity(entityClass: any): boolean {
-  return Reflect.getMetadata(TRACK_CHANGES_METADATA_KEY, entityClass) === true;
+  try {
+    return (
+      Reflect.getMetadata(TRACK_CHANGES_METADATA_KEY, entityClass) === true
+    );
+  } catch (error) {
+    return false;
+  }
 }
 
 export function excludedFields(entityClass: any): (string | symbol)[] {
-  return Reflect.getMetadata(EXCLUDE_CHANGES_FIELDS_METADATA_KEY, entityClass) || [];
+  return (
+    Reflect.getMetadata(EXCLUDE_CHANGES_FIELDS_METADATA_KEY, entityClass) || []
+  );
 }
- 

@@ -4,9 +4,10 @@ import type { Request } from "express";
 import twilio, { Twilio } from "twilio";
 import { WorkflowService } from "src/workflows/workflow.service";
 import * as tClient from "twilio";
+import { CacheService } from "src/cache/cache.service";
 
 export const TWILIO_MEDIA_PATH = "/connector/twilio/media";
-
+export const TWILIO_CACHE_PREFIX = "twilio_voice";
 @Injectable()
 export class TwilioVoiceService {
   private readonly logger = new Logger(TwilioVoiceService.name);
@@ -14,6 +15,7 @@ export class TwilioVoiceService {
   constructor(
     private readonly config: ConfigService,
     private readonly workflowService: WorkflowService,
+    private readonly cacheService: CacheService,
   ) {
     this.client = tClient(
       this.config.get("TWILIO_ACCOUNT_SID"),
@@ -80,13 +82,15 @@ export class TwilioVoiceService {
    * audio; we send audio back on the same WebSocket.
    */
   async buildIncomingTwiML(calledE164?: string): Promise<string> {
-    const streamUrl = await this.buildMediaStreamUrl(calledE164);
+    const [streamUrl, greetingMessage] = await this.buildMediaStreamUrl(
+      calledE164,
+    );
     return `<?xml version="1.0" encoding="UTF-8"?>
             <Response>
             <Connect>
               <ConversationRelay url="${this.escapeXml(
                 streamUrl,
-              )}" welcomeGreeting="Hey there, how can I help you today?" ttsProvider="ElevenLabs" voice="OYTbf65OHHFELVut7v2H"/>
+              )}" welcomeGreeting="${greetingMessage}" ttsProvider="ElevenLabs" voice="s3TPKV1kjDlVtZbl4Ksh-turbo_v2_5"/>
             </Connect>
           </Response>`;
   }
@@ -102,22 +106,26 @@ export class TwilioVoiceService {
   /**
    * Base WebSocket URL from TWILIO_MEDIA_WEBSOCKET_URL, with `to` query set to the dialed number.
    */
-  async buildMediaStreamUrl(calledE164?: string): Promise<string> {
+  async buildMediaStreamUrl(calledE164?: string): Promise<[string, string]> {
     const base = this.config.get<string>("TWILIO_MEDIA_WEBSOCKET_URL");
     if (!base?.trim()) {
       throw new Error("TWILIO_MEDIA_WEBSOCKET_URL is not configured");
     }
     const u = new URL(base.trim());
+    let greetingMessage = "Hello, how can I help you today?";
     if (calledE164?.trim()) {
-      const run = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
+      const workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
         {
           primaryIdentifier: calledE164.trim(),
           workflowName: "voice-assistant",
+          connectorTypeId: "twilio",
         },
       );
-      u.searchParams.set("runId", run.id);
+      this.cacheService.setData(`${TWILIO_CACHE_PREFIX}_${workflowRun.id}`, JSON.stringify(workflowRun.context), 3600 * 24);
+      u.searchParams.set("runId", workflowRun.id);
+      greetingMessage = workflowRun.context.greetingMessage;
     }
-    return u.toString();
+    return [u.toString(), greetingMessage];
   }
 
   buildDisabledTwiML(): string {

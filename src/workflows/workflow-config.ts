@@ -16,16 +16,54 @@ export const workflowConfigs = {
     entitiesNeeded: ["email_workflow_categories", "incoming_emails"],
   },
   "voice-assistant": {
-    description: "Voice assistant that replies to voice calls based on the context of the call and the available resources of your set categories",
-    steps: [ "Answer Calls"],
+    description:
+      "Voice assistant that replies to voice calls based on the context of the call and the available resources of your set categories",
+    steps: ["Answer Calls"],
     connectorsNeeded: ["Twilio"],
-    entitiesNeeded: ["email_workflow_categories"],
+    entitiesNeeded: ["email_workflow_categories", "agent_communications"],
+  },
+  "telegram-assistant": {
+    description:
+      "Telegram assistant that replies to telegram messages based on the context of the message and the available resources of your set categories",
+    steps: ["Reply to Message"],
+    connectorsNeeded: ["Telegram"],
+    entitiesNeeded: ["email_workflow_categories", "agent_communications"],
   },
 };
 
 export const workflowStepConfigs = {
   "Categorize Email": {
     description: "Categorize email into topics.",
+  },
+  "Answer Calls": {
+    description: "Answer calls with a response.",
+    fields: [
+      {
+        label: "Greeting message",
+        name: "greetingMessage",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Assistant Mission",
+        name: "assistantMission",
+        type: "textarea",
+        required: true,
+      },
+    ],
+    availableActions: ["COLLECT_INFORMATION"],
+  },
+  "Reply to Message": {
+    description: "Reply to chat messages with a response.",
+    fields: [
+      {
+        label: "Assistant Mission",
+        name: "assistantMission",
+        type: "textarea",
+        required: true,
+      },
+    ],
+    availableActions: ["COLLECT_INFORMATION"],
   },
   "Reply Email": {
     description: "Reply to email with a response.",
@@ -39,3 +77,12 @@ export const workflowStepConfigs = {
     ],
   },
 };
+
+export const agentActions = [
+  {
+    COLLECT_INFORMATION: {
+      description: "Collect information from the user",
+      requiredInformation: ["name", "email", "phone"],
+    },
+  },
+];

@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { UsersService } from "../../../user/user.service";
-import { LlmService } from "../../../llm-integration/llm.service";
 import {
   EmailAnalysisResult,
   EmailCategory,
   CategorizeStepContext,
 } from "./dto";
+import { completeUserPrompt } from "src/llm-integration/llm-stream";
 
 @Injectable()
 export class CategorizeEmailService {
@@ -13,7 +13,6 @@ export class CategorizeEmailService {
 
   constructor(
     private readonly usersService: UsersService,
-    private readonly llmService: LlmService,
   ) {}
 
   async runStep(context: CategorizeStepContext): Promise<EmailAnalysisResult> {
@@ -67,7 +66,7 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no code
   "questions": "array of questions or null if no questions",
 }`;
 
-    const responseText = await this.llmService.completeUserPrompt(prompt,{teamId: context.teamId});
+    const responseText = await completeUserPrompt(prompt,{teamId: context.teamId});
     return this.parseCategorizationResponse(responseText, categories);
   }
 

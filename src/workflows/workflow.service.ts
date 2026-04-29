@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { IsNull, Not, Or, Repository } from "typeorm";
 import { Workflow } from "./workflow.entity";
 
 import {
@@ -20,6 +20,7 @@ import { Events } from "../queue/queue-constants";
 import { WorkflowRun } from "./workflow-run.entity";
 import { ConnectorService } from "../connector/connector.service";
 import { PaginatedResponse } from "../common/pagination.dto";
+import { ConnectorStatus } from "src/connector/dto";
 
 @Injectable()
 export class WorkflowService {
@@ -40,6 +41,12 @@ export class WorkflowService {
     return workflows;
   }
 
+  async findByLinkedConnector(connectorId: string): Promise<Workflow[]> {
+    return await this.workflowRepo.find({
+      where: { linkedConnectors: { id: connectorId } },
+    });
+  }
+
   async findAvailableWorkflows(): Promise<
     {
       name: string;
@@ -49,17 +56,70 @@ export class WorkflowService {
         description?: string;
         fields: Array<Record<string, any>>;
       }[];
+      connectorsNeeded: string[];
     }[]
   > {
     return Object.entries(workflowConfigs).map(([name, config]) => ({
       name,
       description: config.description,
+      connectorsNeeded: config.connectorsNeeded || [],
       steps: (config.steps || []).map((stepName) => ({
         name: stepName,
         description: workflowStepConfigs[stepName]?.description,
         fields: workflowStepConfigs[stepName]?.fields || [],
+        availableActions: workflowStepConfigs[stepName]?.availableActions || [],
       })),
     }));
+  }
+
+  async getWorkflowRunByContext({
+    connectorId,
+    context,
+  }: {
+    connectorId: string;
+    context: Record<string, any>;
+  }): Promise<WorkflowRun> {
+    return await this.workflowRunRepo
+      .createQueryBuilder("workflow_run")
+      .innerJoinAndSelect("workflow_run.workflow", "workflow")
+      .leftJoin("workflow.linkedConnectors", "connector")
+      .andWhere("connector.id = :connectorId", { connectorId })
+      .andWhere(
+        "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
+        { context: JSON.stringify(context) },
+      )
+      .getOne();
+  }
+  async createOrGetWorkflowRun({
+    connectorId,
+    context,
+  }: {
+    connectorId: string;
+    context: Record<string, any>;
+  }): Promise<WorkflowRun> {
+    let workflowRun = await this.getWorkflowRunByContext({
+      connectorId,
+      context,
+    });
+    if (workflowRun) {
+      return workflowRun;
+    } else {
+      const workflow = await this.workflowRepo.findOne({
+        where: { linkedConnectors: { id: connectorId } },
+      });
+      if (!workflow) {
+        throw new NotFoundException("Workflow not set up for this connector");
+      }
+      workflowRun = this.workflowRunRepo.create({
+        workflowId: workflow.id,
+        context,
+        status: WorkflowRunStatus.PENDING,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await this.workflowRunRepo.save(workflowRun);
+      return await this.findWorkflowRunById(workflowRun.id);
+    }
   }
 
   async findNeedConnectors(
@@ -72,15 +132,18 @@ export class WorkflowService {
       },
     });
     const connectorsNeeded = workflows
-      .map((workflow) => workflowConfigs[workflow.name]?.connectorsNeeded || [])
+      .map(
+        (workflow) =>
+          workflowConfigs[workflow.workflowType]?.connectorsNeeded || [],
+      )
       .flat();
 
     if (onlyMissing) {
       const connectors = (
-        await this.connectorService.findConnectors(user, connectorsNeeded)
-      )
-        .filter((c) => c.status === "active")
-        .map((c) => c.name);
+        await this.connectorService.findConnectors(user, connectorsNeeded, {
+          status: ConnectorStatus.ACTIVE,
+        })
+      ).map((c) => c.name);
       return [
         ...new Set(
           connectorsNeeded.filter(
@@ -93,12 +156,13 @@ export class WorkflowService {
   }
 
   async create(user: UserRequest, dto: CreateWorkflowDto): Promise<Workflow> {
-    if (!Object.keys(workflowConfigs).includes(dto.name)) {
+    if (!Object.keys(workflowConfigs).includes(dto.workflowType)) {
       throw new BadRequestException("Workflow name is not valid");
     }
-    const config = workflowConfigs[dto.name];
+    const config = workflowConfigs[dto.workflowType];
     const workflow = this.workflowRepo.create({
       name: dto.name,
+      workflowType: dto.workflowType,
       description: dto.description ?? config.description,
       triggerQueue: config.triggerQueue || "N/A",
       steps: dto.steps,
@@ -112,6 +176,7 @@ export class WorkflowService {
   async findOne(user: UserRequest, id: string): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
       where: { id, teamId: user.teamId },
+      relations: ["linkedConnectors"],
     });
     if (!workflow) {
       throw new NotFoundException("Workflow not found");
@@ -129,7 +194,7 @@ export class WorkflowService {
 
     const query = this.workflowRunRepo
       .createQueryBuilder("run")
-      .leftJoin("run.workflow", "workflow")
+      .innerJoinAndSelect("run.workflow", "workflow")
       .where("run.workflowId = :workflowId", { workflowId })
       .andWhere("workflow.teamId = :teamId", { teamId: user.teamId });
     if (filters.onlyShowAwaitingActions) {
@@ -164,6 +229,39 @@ export class WorkflowService {
     };
   }
 
+  async findWorkflowRunsByStatuses(
+    user: UserRequest,
+    workflowId: string | null,
+    statuses: WorkflowRunStatus[],
+    filters: Partial<FindWorkflowRunsQueryDto> = {},
+  ): Promise<PaginatedResponse<WorkflowRun>> {
+    const page = Math.max(1, filters.page ?? 1);
+    const perPage = Math.max(1, Math.min(filters.perPage ?? 10, 100));
+
+    const query = this.workflowRunRepo
+      .createQueryBuilder("run")
+      .leftJoin("run.workflow", "workflow")
+      .andWhere("workflow.teamId = :teamId", { teamId: user.teamId })
+      .andWhere("run.status IN (:...statuses)", { statuses });
+
+    if (workflowId) {
+      query.andWhere("run.workflowId = :workflowId", { workflowId });
+    }
+    query.orderBy("run.createdAt", "DESC");
+
+    const [data, totalCount] = await query
+      .skip((page - 1) * perPage)
+      .take(perPage)
+      .getManyAndCount();
+
+    return {
+      data,
+      currentPage: page,
+      totalCount,
+      perPage,
+    };
+  }
+
   async updateSteps(
     user: UserRequest,
     id: string,
@@ -171,12 +269,13 @@ export class WorkflowService {
   ): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
       where: { id, teamId: user.teamId },
+      relations: ["linkedConnectors"],
     });
     if (!workflow) {
       throw new NotFoundException("Workflow not found");
     }
 
-    const config = workflowConfigs[workflow.name];
+    const config = workflowConfigs[workflow.workflowType];
     if (!config) {
       throw new BadRequestException("Workflow configuration is not valid");
     }
@@ -189,12 +288,55 @@ export class WorkflowService {
             `Step "${step.name}" is not part of workflow "${workflow.name}"`,
           );
         }
+        const configuredActions =
+          workflowStepConfigs[step.name]?.availableActions || [];
+        if (step.allowedActions?.length) {
+          const invalidActions = step.allowedActions.filter(
+            (action) => !configuredActions.includes(action),
+          );
+          if (invalidActions.length) {
+            throw new BadRequestException(
+              `Step "${
+                step.name
+              }" contains invalid actions: ${invalidActions.join(", ")}`,
+            );
+          }
+        }
       }
       workflow.steps = dto.steps;
     }
 
     if (dto.description !== undefined) {
       workflow.description = dto.description ?? null;
+    }
+
+    if (dto.linkedConnectorIds !== undefined) {
+      const uniqueIds = [...new Set(dto.linkedConnectorIds)];
+      const connectors = await this.connectorService.findByIdsForTeam(
+        user,
+        uniqueIds,
+        config.connectorsNeeded || [],
+      );
+
+      if (connectors.length !== uniqueIds.length) {
+        throw new BadRequestException("One or more connectors are not valid");
+      }
+
+      for (const connector of connectors) {
+        const typeConfig = this.connectorService.findTypeByName(
+          connector.connectorTypeId,
+        );
+        const linkedElsewhere = connector.linkedWorkflows?.some(
+          (linkedWorkflow) => linkedWorkflow.id !== workflow.id,
+        );
+        if (typeConfig && !typeConfig.multiLink && linkedElsewhere) {
+          throw new BadRequestException(
+            `Connector "${connector.name}" is already linked to another workflow`,
+          );
+        }
+      }
+
+      workflow.linkedConnectors = connectors;
     }
 
     workflow.updatedAt = Date.now();
@@ -204,23 +346,37 @@ export class WorkflowService {
   async createWorkflowRunFromPrimaryIdentifier({
     primaryIdentifier,
     workflowName,
+    connectorTypeId,
   }: {
     primaryIdentifier: string;
     workflowName: string;
+    connectorTypeId: string;
   }): Promise<WorkflowRun> {
-    const workflowId = (
+    const workflow = (
       await this.workflowRepo.query(
-        `SELECT id FROM workflows where name = '${workflowName}' and team_id = (select team_id from connectors where primary_identifier = '${primaryIdentifier}')`,
+        `SELECT id, steps FROM workflows inner join workflow_connectors` +
+          ` on workflows.id = workflow_connectors.workflow_id and workflow_connectors.connector_id =` +
+          ` (select id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorTypeId}')` +
+          ` where workflows.workflow_type = '${workflowName}'`,
       )
-    )?.[0]?.id;
-    if (!workflowId) {
+    )?.[0];
+    if (!workflow) {
       throw new NotFoundException("Workflow not found");
     }
     return await this.workflowRunRepo.save(
       new WorkflowRun({
-        workflowId,
+        workflowId: workflow.id,
         context: {
           primaryIdentifier,
+          greetingMessage: workflow.steps.find(
+            (step) => step.name === "Answer Calls",
+          )?.values.greetingMessage,
+          assistantMission: workflow.steps.find(
+            (step) => step.name === "Answer Calls",
+          )?.values.assistantMission,
+          allowedActions: workflow.steps.find(
+            (step) => step.name === "Answer Calls",
+          )?.allowedActions,
         },
         status: WorkflowRunStatus.PENDING,
         createdAt: Date.now(),

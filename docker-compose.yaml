@@ -11,5 +11,15 @@ services:
       - "5434:5432"
     volumes:
       - pgvector-db:/var/lib/postgresql/data
+  mongo:
+    image: arm64v8/mongo:8.0
+    platform: linux/arm64/v8
+    env_file:
+      - .env
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-db:/data/db
 volumes:
   pgvector-db:
+  mongo-db:

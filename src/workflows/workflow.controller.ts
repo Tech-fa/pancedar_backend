@@ -20,6 +20,7 @@ import {
   CreateWorkflowDto,
   FindWorkflowRunsQueryDto,
   UpdateWorkflowStepsDto,
+  WorkflowRunStatus,
 } from "./dto";
 
 @Controller("workflows")
@@ -104,6 +105,47 @@ export class WorkflowController {
       this.workflowService.findWorkflowRuns(req.user, id, query),
       res,
       "Workflow runs fetched successfully",
+    );
+  }
+  @Get("runs/:status")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
+  async findAwaitingActionRunsForAll(
+    @Req() req,
+    @Res() res: Response,
+    @Param("id") id: string,
+    @Query() query: FindWorkflowRunsQueryDto,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.findWorkflowRunsByStatuses(
+        req.user,
+        null,
+        [req.params.status as WorkflowRunStatus],
+        query,
+      ),
+      res,
+      "Workflow action runs fetched successfully",
+    );
+  }
+
+  @Get(":id/runs/:status")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
+  async findAwaitingActionRuns(
+    @Req() req,
+    @Res() res: Response,
+    @Param("id") id: string,
+    @Query() query: FindWorkflowRunsQueryDto,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.findWorkflowRunsByStatuses(
+        req.user,
+        id,
+        [req.params.status as WorkflowRunStatus],
+        query,
+      ),
+      res,
+      `Workflow action runs fetched successfully for ${id}`,
     );
   }
 

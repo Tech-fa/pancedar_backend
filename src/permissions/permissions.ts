@@ -1,4 +1,3 @@
-
 export enum PermissionEnum {
   CREATE = "create",
   READ = "read",
@@ -147,6 +146,13 @@ export const teamPermission = {
   base_route: "teams",
   adminOnly: true,
 };
+export const agentCommunicationPermission = {
+  subject: "agent_communications",
+  label: "Agent Communication",
+  actions: actions,
+  service_tag: "agent_communications",
+  base_route: "agent-communications",
+};
 
 export const workflowPermission = {
   subject: "workflows",
@@ -218,6 +224,7 @@ export const permissions: {
   incomingEmailsPermission,
   permissionPermission,
   costPermission,
+  agentCommunicationPermission,
 };
 
 export const permissionTree: {
@@ -231,6 +238,7 @@ export const permissionTree: {
   incomingEmailsPermission,
   permissionPermission,
   costPermission,
+  agentCommunicationPermission,
 };
 
 export const defaultPermissionGroups = [

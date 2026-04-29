@@ -3,7 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { ChunkSourceType, ResourceChunk } from "./resource-chunk.ts_entity";
 import { EmbeddingService } from "../embedding/embedding.service";
-import { LlmService } from "../llm-integration/llm.service";
+import { completeUserPrompt } from "src/llm-integration/llm-stream";
 
 export interface RetrievedChunk {
   id: string;
@@ -25,7 +25,6 @@ export class RagRetrievalService {
     @InjectRepository(ResourceChunk, "psql")
     private readonly chunkRepo: Repository<ResourceChunk>,
     private readonly embeddingService: EmbeddingService,
-    private readonly llmService: LlmService,
   ) {}
 
   /**
@@ -178,7 +177,7 @@ ${numbered}
 Respond ONLY with JSON of the form {"ranked": [n1, n2, ...]} using the 1-based indices above, in order of most useful first. No prose.`;
 
     try {
-      const raw = await this.llmService.completeUserPrompt(prompt, {
+      const raw = await completeUserPrompt(prompt, {
         teamId: teamId,
         maxTokens: 256,
       });

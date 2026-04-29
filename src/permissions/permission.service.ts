@@ -84,10 +84,10 @@ export class PermissionService {
     const workflowNames =
       (
         await this.permissionGroupRepository.query(
-          `SELECT DISTINCT name FROM workflows where team_id = '${teamId}'`,
+          `SELECT DISTINCT workflow_type as type FROM workflows where team_id = '${teamId}'`,
         )
       )
-        ?.map((w) => workflowConfigs[w.name].entitiesNeeded)
+        ?.map((w) => workflowConfigs[w.type].entitiesNeeded)
         ?.flat() || [];
     const filteredPermissions = workflowSpecificPermissions
       .filter((p) => workflowNames.includes(p.subject))

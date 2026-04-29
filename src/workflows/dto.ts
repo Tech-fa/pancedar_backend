@@ -50,6 +50,10 @@ export class CreateWorkflowDto {
   @IsNotEmpty()
   @MaxLength(255)
   name: string;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  workflowType: string;
 
   @IsOptional()
   @IsString()
@@ -87,6 +91,8 @@ export class WorkflowStepDto {
   name: string;
 
   values: { [key: string]: any };
+
+  allowedActions: string[];
 }
 export class Explanation {
   @IsString()
@@ -152,6 +158,11 @@ export class UpdateWorkflowStepsDto {
   @ValidateNested({ each: true })
   @Type(() => WorkflowStepDto)
   steps?: WorkflowStepDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  linkedConnectorIds?: string[];
 }
 
 export class UpdateWorkflowDto {

@@ -31,6 +31,12 @@ export class WorkflowRun {
   @Column({ name: "status", type: "varchar", length: 255 })
   status: WorkflowRunStatus;
 
+  @Column({ name: "completed_view", type: "json", nullable: true })
+  completedView: {
+    subject: string;
+    id: string;
+  };
+
   @Column({
     name: "current_step",
     type: "varchar",

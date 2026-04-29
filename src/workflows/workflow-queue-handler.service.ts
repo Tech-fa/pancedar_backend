@@ -46,9 +46,8 @@ export class WorkflowQueueHandler {
         return;
       }
 
-      const workflows = await this.workflowService.findByTriggerQueue(
-        Events.PROCESS_INCOMING_EMAIL,
-        incomingEmail.connector.teamId,
+      const workflows = await this.workflowService.findByLinkedConnector(
+        incomingEmail.connector.id,
       );
 
       if (!workflows.length) {

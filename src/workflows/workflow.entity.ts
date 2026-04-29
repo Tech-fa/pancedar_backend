@@ -1,6 +1,15 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
+import {
+  Column,
+  Entity,
+  Index,
+  JoinTable,
+  ManyToMany,
+  OneToMany,
+  PrimaryGeneratedColumn,
+} from "typeorm";
 import { Events } from "../queue/queue-constants";
 import { WorkflowStepDto } from "./dto";
+import { Connector } from "src/connector/connector.entity";
 
 @Entity("workflows")
 @Index(["name", "teamId"], { unique: true })
@@ -14,6 +23,9 @@ export class Workflow {
 
   @Column({ name: "name", type: "varchar", length: 255 })
   name: string;
+
+  @Column({ name: "workflow_type", type: "varchar", length: 255 })
+  workflowType: string;
 
   @Column({ name: "description", type: "text", nullable: true })
   description: string | null;
@@ -42,4 +54,14 @@ export class Workflow {
   @Column({ name: "team_id", type: "varchar", length: 36 })
   @Index()
   teamId: string;
+
+  @ManyToMany(() => Connector, (workflow) => workflow.linkedWorkflows, {
+    cascade: true,
+  })
+  @JoinTable({
+    name: "workflow_connectors",
+    joinColumn: { name: "workflow_id", referencedColumnName: "id" },
+    inverseJoinColumn: { name: "connector_id", referencedColumnName: "id" },
+  })
+  linkedConnectors: Connector[];
 }

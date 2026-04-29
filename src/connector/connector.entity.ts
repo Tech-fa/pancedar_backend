@@ -2,6 +2,8 @@ import {
   Column,
   Entity,
   JoinColumn,
+  JoinTable,
+  ManyToMany,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -9,9 +11,10 @@ import {
 } from "typeorm";
 import { Team } from "../team/team.entity";
 import { ConnectorStatus } from "./dto";
+import { Workflow } from "src/workflows/workflow.entity";
 
 @Entity("connectors")
-@Unique(["primaryIdentifier"])
+@Unique(["primaryIdentifier", "connectorTypeId"])
 export class Connector {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -49,4 +52,7 @@ export class Connector {
     type: "bigint",
   })
   updatedAt: number;
+
+  @ManyToMany(() => Workflow, (workflow) => workflow.linkedConnectors)
+  linkedWorkflows: Workflow[];
 }

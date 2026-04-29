@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository } from "typeorm";
+import { FindOptionsWhere, In, Repository } from "typeorm";
 import { Connector } from "./connector.entity";
 import {
   CreateConnectorDto,
@@ -19,12 +19,14 @@ import {
   ConnectorTypeConfig,
   connectorTypesConfig,
 } from "./connector-types.config";
+import { QueuePublisher } from "src/queue/queue.publisher";
 
 @Injectable()
 export class ConnectorService {
   constructor(
     @InjectRepository(Connector)
     private readonly connectorRepo: Repository<Connector>,
+    private readonly queueProducer: QueuePublisher,
   ) {}
 
   findTypeByName(name: string): ConnectorTypeConfig | undefined {
@@ -33,15 +35,16 @@ export class ConnectorService {
 
   listTypeConfigsForClient(): Pick<
     ConnectorTypeConfig,
-    "name" | "description" | "serviceName" | "oauthUrl" | "fields"
+    "name" | "description" | "serviceName" | "oauthUrl" | "fields" | "multiLink"
   >[] {
     return connectorTypesConfig.map(
-      ({ name, description, serviceName, oauthUrl, fields }) => ({
+      ({ name, description, serviceName, oauthUrl, fields, multiLink }) => ({
         name,
         description,
         serviceName,
         oauthUrl,
         fields,
+        multiLink,
       }),
     );
   }
@@ -58,11 +61,21 @@ export class ConnectorService {
     }
 
     const now = Date.now();
-    const primaryIdentifier = typeConfig.fields?.find((f) => f.isPrimaryIdentifier)?.name;
+    const primaryIdentifier = typeConfig.fields?.find(
+      (f) => f.isPrimaryIdentifier,
+    )?.name;
+    console.log(credentials);
+    const config = this.findTypeByName(connectorTypeName);
+    for (const key in credentials) {
+      if (config?.fields?.find((f) => f.name === key)?.secret) {
+        credentials[key] = await encrypt(credentials[key]);
+      }
+    }
     const connector = this.connectorRepo.create({
       name: typeConfig.name,
       connectorTypeId: connectorTypeName,
-      primaryIdentifier: credentials[primaryIdentifier] || `${connectorTypeName}-${now}`,
+      primaryIdentifier:
+        credentials[primaryIdentifier] || `${connectorTypeName}-${now}`,
       credentials,
       status: typeConfig.oauthUrl
         ? ConnectorStatus.PENDING
@@ -71,7 +84,14 @@ export class ConnectorService {
       createdAt: now,
       updatedAt: now,
     });
-    return this.connectorRepo.save(connector);
+
+    const saved = await this.connectorRepo.save(connector);
+    if (config?.configureQueue) {
+      await this.queueProducer.publish(config.configureQueue, {
+        connectorId: saved.id,
+      });
+    }
+    return saved;
   }
 
   async reconnect(id: string): Promise<{ oauthUrl: string }> {
@@ -90,9 +110,10 @@ export class ConnectorService {
 
   async findOneByPrimaryIdentifier(
     primaryIdentifier: string,
+    connectorTypeId: string,
   ): Promise<Connector> {
     return this.connectorRepo.findOne({
-      where: { primaryIdentifier },
+      where: { primaryIdentifier, connectorTypeId },
     });
   }
 
@@ -102,6 +123,7 @@ export class ConnectorService {
     const rows = await this.connectorRepo.find({
       where: { teamId: user.teamId },
       order: { createdAt: "DESC" },
+      relations: { linkedWorkflows: true },
       select: {
         id: true,
         name: true,
@@ -109,6 +131,11 @@ export class ConnectorService {
         primaryIdentifier: true,
         credentials: true,
         connectorTypeId: true,
+        linkedWorkflows: {
+          id: true,
+          name: true,
+          workflowType: true,
+        },
       },
     });
     return rows.map((c) => {
@@ -121,12 +148,30 @@ export class ConnectorService {
   async findConnectors(
     user: UserRequest,
     names: string[],
+    extraConditions: FindOptionsWhere<Connector> = {},
   ): Promise<Connector[]> {
     return await this.connectorRepo.find({
       where: {
         teamId: user.teamId,
         name: In(names),
+        ...extraConditions,
       },
+    });
+  }
+
+  async findByIdsForTeam(
+    user: UserRequest,
+    ids: string[],
+    neededConnectorTypes: string[],
+  ): Promise<Connector[]> {
+    if (!ids.length) return [];
+    return this.connectorRepo.find({
+      where: {
+        id: In(ids),
+        teamId: user.teamId,
+        connectorTypeId: In(neededConnectorTypes),
+      },
+      relations: { linkedWorkflows: true },
     });
   }
 
@@ -176,14 +221,24 @@ export class ConnectorService {
     if (dto.name?.trim()) connector.name = dto.name.trim();
 
     if (dto.status !== undefined) connector.status = dto.status;
-
+    const config = this.findTypeByName(connector.connectorTypeId);
     if (dto.credentials !== undefined && dto.credentials !== null) {
       connector.credentials = {
         ...(connector.credentials || {}),
         ...dto.credentials,
       };
-      if (dto.credentials["Twilio Phone Number"]) {
-        connector.primaryIdentifier = dto.credentials["Twilio Phone Number"];
+      Object.entries(dto.credentials).forEach(([key, value]) => {
+        if (config?.fields?.find((f) => f.name === key)?.isPrimaryIdentifier) {
+          connector.primaryIdentifier = value;
+        }
+        if (config?.fields?.find((f) => f.name === key)?.secret) {
+          connector.credentials[key] = encrypt(value);
+        }
+      });
+      if (config?.configureQueue) {
+        await this.queueProducer.publish(config.configureQueue, {
+          connectorId: connector.id,
+        });
       }
     }
 

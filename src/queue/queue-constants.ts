@@ -25,6 +25,9 @@ export enum Events {
   EMAIL_WORKFLOW_REPLY = 'email_workflow_reply',
   EMAIL_WORKFLOW_REPLY_GMAIL = 'email_workflow_reply_gmail',
   EMAIL_ASSISTANT = 'email_assistant',
+  COMPLETE_RUN = 'complete_run',
+  CONFIGURE_TELEGRAM = 'configure_telegram',
+  RECORD_COMMUNICATION = 'record_communication',
 }
 
 

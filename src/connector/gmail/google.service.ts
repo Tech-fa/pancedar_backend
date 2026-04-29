@@ -56,6 +56,7 @@ export class GoogleSerivce {
       // Find credential by inbox email
       const connector = await this.connectorService.findOneByPrimaryIdentifier(
         inboxEmail,
+        "gmail",
       );
 
       if (!connector) {

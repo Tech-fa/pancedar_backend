@@ -10,6 +10,10 @@ import { Public } from "../../util/constants";
 import type { RawData, WebSocket } from "ws";
 import { RagRetrievalService } from "../../rag/rag-retrieval.service";
 import { LlmAgent } from "src/llm-integration/llm-agent";
+import { CacheService } from "src/cache/cache.service";
+import { TWILIO_CACHE_PREFIX } from "./twilio-voice.service";
+import { QueuePublisher } from "src/queue/queue.publisher";
+import { Events } from "src/queue/queue-constants";
 
 type TwilioWs = WebSocket;
 
@@ -30,17 +34,62 @@ export class TwilioMediaGateway
   constructor(
     private readonly config: ConfigService,
     private readonly ragRetrievalService: RagRetrievalService,
+    private readonly cacheService: CacheService,
+    private readonly queuePublisher: QueuePublisher,
   ) {}
 
-  handleConnection(client: TwilioWs, request: IncomingMessage): void {
-    const llmAgent = new LlmAgent(this.config, this.ragRetrievalService);
-    client["agent"] = llmAgent;
-    client.on("message", (data: RawData) =>
-      this.onMessage(client as WebSocket & { agent: LlmAgent }, data),
+  async handleConnection(
+    client: TwilioWs,
+    request: IncomingMessage,
+  ): Promise<void> {
+    const runId = this.parseRunIdFromUrl(request.url);
+    const timeout = setTimeout(() => {
+      this.fullSendToken(
+        client,
+        "We need to close this call now because the maximum call time was reached.",
+      );
+      client.close();
+    }, 5 * 60 * 1000);
+    const context = JSON.parse(
+      await this.cacheService.getData(`${TWILIO_CACHE_PREFIX}_${runId}`),
+    ) as any;
+    const llmAgent = new LlmAgent(
+      this.config,
+      this.ragRetrievalService,
+      this.queuePublisher,
+      {
+        mission: context?.assistantMission,
+        availableActions: context?.allowedActions,
+        source: runId,
+      },
     );
+    client["agent"] = llmAgent;
+    client["runId"] = runId;
+    client.on("message", (data: RawData) =>
+      this.onMessage(
+        client as WebSocket & { agent: LlmAgent; runId: string | null },
+        data,
+      ),
+    );
+    client.on("close", () => {
+      clearTimeout(timeout);
+      this.handleDisconnect(runId);
+    });
   }
 
-  handleDisconnect(): void {}
+  async handleDisconnect(runId: string | null): Promise<void> {
+    if (!runId) {
+      this.logger.warn("WebSocket disconnected without runId");
+      return;
+    }
+    if (typeof runId !== "string") {
+      return;
+    }
+    await this.queuePublisher.publish(Events.COMPLETE_RUN, {
+      runId,
+      completedView: { subject: "agent_messages", id: runId },
+    });
+  }
 
   private parseRunIdFromUrl(url: string | undefined): string | null {
     if (!url) return null;
@@ -52,7 +101,7 @@ export class TwilioMediaGateway
   }
 
   private async onMessage(
-    client: WebSocket & { agent: LlmAgent },
+    client: WebSocket & { agent: LlmAgent; runId: string | null },
     data: RawData,
   ): Promise<void> {
     let msg;
@@ -62,6 +111,8 @@ export class TwilioMediaGateway
       this.logger.warn("Non-JSON WebSocket frame ignored");
       return;
     }
+
+
 
     switch (msg.type) {
       case "setup":

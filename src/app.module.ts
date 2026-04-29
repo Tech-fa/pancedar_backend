@@ -2,8 +2,10 @@ import { Module } from "@nestjs/common";
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { MongooseModule } from "@nestjs/mongoose";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import dbConfiguration from "./db/database";
+import mongodbConfiguration from "./db/mongodb";
 import psqlConfiguration from "./db/psql";
 import { AuthModule } from "./authentication/auth.module";
 import { UsersModule } from "./user/user.module";
@@ -25,12 +27,14 @@ import { GoogleModule } from "./connector/gmail/google.module";
 import { TwilioVoiceModule } from "./connector/twilio/twilio-voice.module";
 import { ResourceIngestionModule } from "./resource-ingestion/resource-ingestion.module";
 import { CostModule } from "./cost/cost.module";
+import { TelegramModule } from "./connector/telegram/telegram.module";
+import { AgentCommunicationModule } from "./agent-communication/agent-communication.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env.override", ".env.local", ".env", ".env.aws"],
-      load: [dbConfiguration, psqlConfiguration],
+      load: [dbConfiguration, psqlConfiguration, mongodbConfiguration],
     }), // .env.override takes priority when duplicates exist
     TypeOrmModule.forRootAsync({
       name: "default",
@@ -44,6 +48,13 @@ import { CostModule } from "./cost/cost.module";
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) =>
         configService.get("psql"),
+      inject: [ConfigService],
+    }),
+    MongooseModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        uri: configService.get<string>("mongodb.uri"),
+      }),
       inject: [ConfigService],
     }),
     AuthModule,
@@ -60,9 +71,11 @@ import { CostModule } from "./cost/cost.module";
     WorkflowModule,
     EmailAssistantModule,
     GoogleModule,
-    TwilioVoiceModule,  
+    TwilioVoiceModule,
+    TelegramModule,
     ResourceIngestionModule,
     CostModule,
+    AgentCommunicationModule,
   ],
   controllers: [AppController],
   providers: [

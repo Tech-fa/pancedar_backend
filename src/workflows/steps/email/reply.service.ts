@@ -1,6 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { UsersService } from "../../../user/user.service";
-import { LlmService } from "../../../llm-integration/llm.service";
 import { CategoryService } from "../../../category/category.service";
 import { QueuePublisher } from "../../../queue/queue.publisher";
 import { EmailAnalysisResult } from "./dto";
@@ -8,6 +7,7 @@ import { WorkflowEmailCategory } from "../../../category/category.entity";
 import { Events } from "../../../queue/queue-constants";
 import { EmailWorkflowReplyPayload } from "../../../email-handler/dto";
 import { RagRetrievalService } from "../../../rag/rag-retrieval.service";
+import { completeUserPrompt } from "src/llm-integration/llm-stream";
 
 @Injectable()
 export class ReplyEmailService {
@@ -15,8 +15,6 @@ export class ReplyEmailService {
 
   constructor(
     private readonly usersService: UsersService,
-    private readonly categoryService: CategoryService,
-    private readonly llmService: LlmService,
     private readonly queuePublisher: QueuePublisher,
     private readonly ragRetrievalService: RagRetrievalService,
   ) {}
@@ -106,7 +104,7 @@ Write only the reply body text (no subject line). Be helpful and professional.`;
 
     try {
       return (
-        await this.llmService.completeUserPrompt(prompt, { teamId })
+        await completeUserPrompt(prompt, { teamId })
       ).trim();
     } catch (error) {
       this.logger.error(
