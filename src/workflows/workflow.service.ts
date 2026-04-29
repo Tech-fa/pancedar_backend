@@ -395,6 +395,7 @@ export class WorkflowService {
           allowedActions: workflow.steps.find(
             (step) => step.name === "Answer Calls",
           )?.allowedActions,
+          teamId: workflow.teamId,
         },
         displayContext,
         status: WorkflowRunStatus.PENDING,

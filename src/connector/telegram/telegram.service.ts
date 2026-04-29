@@ -93,7 +93,6 @@ export class TelegramService {
       } else {
         startedAt = initialState.startedAt;
       }
-      console.log(initialState);
       const run = await this.workflowService.createOrGetWorkflowRun({
         connectorId,
         context: {
@@ -113,6 +112,7 @@ export class TelegramService {
         this.serviceMap,
         {
           source: run.id,
+          teamId: run.workflow?.teamId,
           skipPartialToken: true,
           mission: run.workflow?.steps.find(
             (step) => step.name === "Reply to Message",

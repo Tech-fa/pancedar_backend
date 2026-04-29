@@ -82,8 +82,7 @@ export const agentActions = {
   COLLECT_INFORMATION: {
     description: "Collect information from the user",
     requiredInformation: ["name", "email", "phone"],
-    /** Empty: uses the workflow’s linked connectors. Set types here only when an action needs specific connector types beyond the step. */
-    connectorsNeeded: [] as const,
+    connectorsNeeded: ["Gmail"] as const,
   },
 } as const;
 

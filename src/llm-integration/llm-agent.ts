@@ -68,6 +68,7 @@ type LlmAgentOptions = {
   mission?: string;
   availableActions?: { [key: string]: { requiredInformation: string[] } };
   source: string;
+  teamId:string
   skipPartialToken?: boolean;
   initialState?: LlmAgentState;
   onStateChange?: (state: LlmAgentState) => void | Promise<void>;
@@ -225,7 +226,7 @@ export class LlmAgent {
     private readonly ragRetrievalService: RagRetrievalService,
     private readonly queuePublisher: QueuePublisher,
     private readonly serviceMap: Record<string, any>,
-    options: LlmAgentOptions = { source: "default" },
+    options: LlmAgentOptions = { source: "default", teamId: "" },
   ) {
     this.initialContext = options.initialContext ?? "None";
     this.mission = options.mission ?? "None";
@@ -890,9 +891,9 @@ export class LlmAgent {
   private async fetchKbContext(query: string): Promise<string> {
     try {
       const chunks = await this.ragRetrievalService.retrieve(
-        "22",
+        "",
         "category",
-        "131fd9d6-043e-4510-9aee-186e168848eb",
+        "",
         query,
         5,
         true,

@@ -68,6 +68,7 @@ export class TwilioMediaGateway
         mission: context?.assistantMission,
         availableActions: context?.allowedActions,
         source: runId,
+        teamId: context?.teamId,
       },
     );
     client["agent"] = llmAgent;
