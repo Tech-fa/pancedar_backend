@@ -26,7 +26,7 @@ export class WorkflowRunHandler {
       this.logger.warn("Received COMPLETE_RUN without runId");
       return;
     }
-
+    console.log("handleCompleteRun", payload);
     const workflowRun = await this.workflowService.findWorkflowRunById(
       payload.runId,
     );

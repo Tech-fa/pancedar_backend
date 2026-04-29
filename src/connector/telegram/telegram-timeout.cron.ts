@@ -48,7 +48,7 @@ export class TelegramTimeoutCron {
 
       await this.queuePublisher.publish(Events.COMPLETE_RUN, {
         runId: run.id,
-        completedView: { subject: "agent_messages", id: run.id },
+        completedView: { subject: "agent_communications", id: run.id },
       });
 
       const chatId = run.context?.chatId;

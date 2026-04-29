@@ -87,7 +87,7 @@ export class TwilioMediaGateway
     }
     await this.queuePublisher.publish(Events.COMPLETE_RUN, {
       runId,
-      completedView: { subject: "agent_messages", id: runId },
+      completedView: { subject: "agent_communications", id: runId },  
     });
   }
 
