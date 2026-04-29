@@ -78,11 +78,15 @@ export const workflowStepConfigs = {
   },
 };
 
-export const agentActions = [
-  {
-    COLLECT_INFORMATION: {
-      description: "Collect information from the user",
-      requiredInformation: ["name", "email", "phone"],
-    },
+export const agentActions = {
+  COLLECT_INFORMATION: {
+    description: "Collect information from the user",
+    requiredInformation: ["name", "email", "phone"],
+    /** Empty: uses the workflow’s linked connectors. Set types here only when an action needs specific connector types beyond the step. */
+    connectorsNeeded: [] as const,
   },
-];
+} as const;
+
+export enum AgentActionKey {
+  COLLECT_INFORMATION = "COLLECT_INFORMATION",
+}

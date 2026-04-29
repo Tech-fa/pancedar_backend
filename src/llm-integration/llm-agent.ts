@@ -3,9 +3,9 @@ import { ChatMessage, streamLLM } from "./llm-stream";
 import { RagRetrievalService } from "src/rag/rag-retrieval.service";
 import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
-import { agentActions } from "src/workflows/workflow-config";
-import { QueuePublisher } from "src/queue/queue.publisher";
-import { Events } from "src/queue/queue-constants";
+import { agentActions } from "../workflows/workflow-config";
+import { QueuePublisher } from "../queue/queue.publisher";
+import { Events } from "../queue/queue-constants";
 
 type ActionType =
   | "LOOKUP_KB"
@@ -31,6 +31,7 @@ interface TurnParams {
 type ActionState = "idle" | "asking_for_information" | "performing_action";
 
 type PendingExternalAction = {
+  actionName: string;
   requiredInformation: string[];
   collectedInformation: Record<string, string>;
 };
@@ -61,26 +62,11 @@ export type LlmAgentState = {
 };
 
 const PLANNER_MAX_TOKENS = 1024;
-const DEFAULT_INITIAL_CONTEXT = [
-  "This business helps customers with AI-related work.",
-  "The assistant can help answer questions and book meetings.",
-  "always try to book a meeting with the user",
-  "The only supported external action is BOOK_MEETING.",
-].join("\n");
-const DEFAULT_MISSION = [
-  "Help callers understand the business using only the Initial context, Knowledge base, and previous conversation.",
-  "Encourage booking a meeting when it is relevant, but do not pressure the caller.",
-  "If the caller asks about services, capabilities, pricing, results, or company details that are not explicitly provided, use LOOKUP_KB instead of guessing.",
-].join("\n");
-
-const REQUIRED_INFORMATION_BY_ACTION: Record<string, string[]> = {
-  BOOK_MEETING: ["name", "phone number"],
-};
 
 type LlmAgentOptions = {
   initialContext?: string;
   mission?: string;
-  availableActions?: string[];
+  availableActions?: { [key: string]: { requiredInformation: string[] } };
   source: string;
   skipPartialToken?: boolean;
   initialState?: LlmAgentState;
@@ -153,8 +139,10 @@ export class LlmAgent {
     - if you found that you might need to repeat yourself, do a lookup.
     - We want to try to give the user detailed answers, so if you think there isn't enough information in the context to answer the question, set the action to LOOKUP_KB.
     - if the user is still talking about the same information, as current information, do not perform any lookup, rather continue from where you left off, and set the action to NONE.
+    
     Rules for END_CONVERSATION:
     - Never end the conversation without confirmation from the user.
+
     Rules for PERFORM_EXTERNAL_ACTION:
     - only if the user is asking for a new action to be performed, set the action to PERFORM_EXTERNAL_ACTION.
     - only if the actionState is idle, set the action to PERFORM_EXTERNAL_ACTION.
@@ -171,8 +159,7 @@ export class LlmAgent {
     Rules for NONE:
     - the answer is to be filled in spokenMessage
     - if the action is performed successfully, tell the user that its done.
-    - if the user input is just fillers or within the context of your last message, with no new information, do not perform any action, rather continue from where you left off. 
-    - if the information required by the user is already available in the context, do not perform any action, rather continue from where you left off.
+    - if the information required by the user is already available in the context, do not perform any action, rather continue from where you left off, but if you have answered it already (based on previous messages from you), ask the user if they need anything else.
     - if the lookup state is fetching, and the user is asking about the same information, just politely ask them to wait.
     - if the action state is performing, and the user is asking about the same information, just politely ask them to wait.
     - if the user asked to perform an action, and there are missing information, just politely ask them to provide the missing information, based on the current action and the required information.
@@ -189,6 +176,7 @@ export class LlmAgent {
     - always check current action to see if the user has already provided the required information.
     - never append question marks if you are confirming something and not asking a question.
     - if we have an action error, ask the user for the infromation mentioned in the error
+    - if after you have looked up the information, and no new information is found, do not repeat your self, tell the user that you have no more information to provide.
     
     
     Rules for action:
@@ -236,16 +224,21 @@ export class LlmAgent {
     private readonly config: ConfigService,
     private readonly ragRetrievalService: RagRetrievalService,
     private readonly queuePublisher: QueuePublisher,
+    private readonly serviceMap: Record<string, any>,
     options: LlmAgentOptions = { source: "default" },
   ) {
-    this.initialContext =
-      options.initialContext ?? 'None';
-    this.mission =
-      options.mission ?? 'None';
+    this.initialContext = options.initialContext ?? "None";
+    this.mission = options.mission ?? "None";
     this.availableActions = {};
-    for (const action of options.availableActions || []) {
-      this.availableActions[action] = agentActions[action];
+    for (const action of Object.keys(options.availableActions || {}) || []) {
+      this.availableActions[action] = {
+        requiredInformation:
+          options.availableActions[action].requiredInformation ??
+          agentActions[action].requiredInformation,
+        description: agentActions[action].description,
+      };
     }
+    console.log(this.availableActions);
     this.source = options.source;
     this.skipPartialToken = options.skipPartialToken ?? false;
     if (Object.keys(options.initialState ?? {}).length) {
@@ -491,7 +484,9 @@ export class LlmAgent {
       this.pushHistory({ role: "user", content: userText });
     }
     this.setState({ previousAction: plan.action });
-    this.pushHistory({ role: "assistant", content: JSON.stringify(plan) });
+    if (plan.spokenMessage) {
+      this.pushHistory({ role: "assistant", content: plan.spokenMessage });
+    }
     if (plan.action === "NONE" || plan.action === "END_CONVERSATION") {
       params.sendEmptyToken();
 
@@ -515,8 +510,10 @@ export class LlmAgent {
             },
           });
           const requiredInformation =
-            REQUIRED_INFORMATION_BY_ACTION[updatedAction.name] ?? [];
+            this.availableActions[updatedAction.name]?.requiredInformation ??
+            [];
           const pendingAction = {
+            actionName: updatedAction.name,
             requiredInformation,
             collectedInformation: updatedAction.collectedInformation,
           };
@@ -538,7 +535,7 @@ export class LlmAgent {
                 [performingAction.id]: performingAction,
               },
             });
-            await new Promise((resolve) => setTimeout(resolve, 4000));
+            await this.performAction(pendingAction);
             this.setState({
               actionState: "idle",
               actionPerformed: [
@@ -602,7 +599,7 @@ export class LlmAgent {
 
         this.setState({ currentActionId: actionInstance.id });
         const requiredInformation =
-          REQUIRED_INFORMATION_BY_ACTION[actionName] ?? [];
+          this.availableActions[actionName]?.requiredInformation ?? [];
         const updatedAction = {
           ...actionInstance,
           collectedInformation: {
@@ -618,6 +615,7 @@ export class LlmAgent {
         });
 
         const pendingAction = {
+          actionName,
           requiredInformation,
           collectedInformation: updatedAction.collectedInformation,
         };
@@ -625,12 +623,9 @@ export class LlmAgent {
         const missingInformation = this.missingRequiredInformation(
           pendingAction,
         );
-        console.log("missingInformation", missingInformation);
-        console.log(updatedAction.collectedInformation);
         const allInformationAvailable = missingInformation.length === 0;
 
         if (allInformationAvailable) {
-          console.log("Action performing");
           const performingAction = {
             ...updatedAction,
             state: "performing_action" as const,
@@ -642,9 +637,8 @@ export class LlmAgent {
               [performingAction.id]: performingAction,
             },
           });
-          await new Promise((resolve) => setTimeout(resolve, 10000));
-          console.log("Action performed");
-          this.setState({
+          await this.performAction(pendingAction);
+          await this.setState({
             actionState: "idle",
             actionPerformed: [
               ...this.actionPerformed,
@@ -678,6 +672,34 @@ export class LlmAgent {
       }
       default:
         return;
+    }
+  }
+
+  private async performAction(
+    pendingAction: PendingExternalAction,
+  ): Promise<void> {
+    this.logger.log(
+      `Performing action ${
+        pendingAction.actionName
+      } with collected information ${JSON.stringify(
+        pendingAction.collectedInformation,
+      )}`,
+    );
+
+    const action = this.serviceMap[pendingAction.actionName];
+    if (!action) {
+      this.logger.error(`Action ${pendingAction.actionName} not found`);
+    }
+    try {
+      await this.serviceMap[action].execute({
+        ...pendingAction.collectedInformation,
+        workflowRunId: this.source,
+      });
+    } catch (error) {
+      this.logger.error(`Error performing action ${pendingAction.actionName}`, {
+        message: error.message,
+        stack: error.stack,
+      });
     }
   }
 

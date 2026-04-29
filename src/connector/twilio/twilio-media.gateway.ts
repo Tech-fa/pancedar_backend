@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { Inject, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   OnGatewayConnection,
@@ -14,6 +14,7 @@ import { CacheService } from "src/cache/cache.service";
 import { TWILIO_CACHE_PREFIX } from "./twilio-voice.service";
 import { QueuePublisher } from "src/queue/queue.publisher";
 import { Events } from "src/queue/queue-constants";
+import { SERVICE_MAP } from "src/service-mapping/service.map";
 
 type TwilioWs = WebSocket;
 
@@ -36,6 +37,11 @@ export class TwilioMediaGateway
     private readonly ragRetrievalService: RagRetrievalService,
     private readonly cacheService: CacheService,
     private readonly queuePublisher: QueuePublisher,
+    @Inject(SERVICE_MAP)
+    private readonly serviceMap: Record<
+      string,
+      { [key: string]: (...args: any[]) => Promise<any> }
+    >,
   ) {}
 
   async handleConnection(
@@ -57,6 +63,7 @@ export class TwilioMediaGateway
       this.config,
       this.ragRetrievalService,
       this.queuePublisher,
+      this.serviceMap,
       {
         mission: context?.assistantMission,
         availableActions: context?.allowedActions,
@@ -87,7 +94,7 @@ export class TwilioMediaGateway
     }
     await this.queuePublisher.publish(Events.COMPLETE_RUN, {
       runId,
-      completedView: { subject: "agent_communications", id: runId },  
+      completedView: { subject: "agent_communications", id: runId },
     });
   }
 
@@ -111,8 +118,6 @@ export class TwilioMediaGateway
       this.logger.warn("Non-JSON WebSocket frame ignored");
       return;
     }
-
-
 
     switch (msg.type) {
       case "setup":

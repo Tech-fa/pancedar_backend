@@ -12,6 +12,7 @@ import { QueueModule } from "src/queue/queue.module";
 import { WorkflowRun } from "src/workflows/workflow-run.entity";
 import { AgentCommunicationModule } from "src/agent-communication/agent-communication.module";
 import { TelegramTimeoutCron } from "./telegram-timeout.cron";
+import { ServiceMappingModule } from "src/service-mapping/service-mapping.module";
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { TelegramTimeoutCron } from "./telegram-timeout.cron";
     QueueModule,
     TypeOrmModule.forFeature([WorkflowRun]),
     AgentCommunicationModule,
+    ServiceMappingModule,
   ],
   controllers: [TelegramController],
   providers: [TelegramService, TelegramQueueHandler, TelegramTimeoutCron],

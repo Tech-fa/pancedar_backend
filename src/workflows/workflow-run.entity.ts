@@ -22,6 +22,9 @@ export class WorkflowRun {
   @Column({ name: "context", type: "json", nullable: true })
   context: Record<string, any>;
 
+  @Column({ name: "display_context", type: "json", nullable: true })
+  displayContext: Record<string, any>;
+
   @Column({ name: "created_at", type: "bigint" })
   createdAt: number;
 

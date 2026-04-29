@@ -34,7 +34,8 @@ export class TwilioVoiceController {
     }
 
     const calledNumber = body.To;
-    const twiml = await this.voice.buildIncomingTwiML(calledNumber);
+    const fromNumber = body.From;
+    const twiml = await this.voice.buildIncomingTwiML(calledNumber, fromNumber);
     res.type("text/xml").send(twiml);
   }
 

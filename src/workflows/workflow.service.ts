@@ -15,7 +15,7 @@ import {
   WorkflowRunStatus,
 } from "./dto";
 import { UserRequest } from "../permissions/dto";
-import { workflowConfigs, workflowStepConfigs } from "./workflow-config";
+import { agentActions, workflowConfigs, workflowStepConfigs } from "./workflow-config";
 import { Events } from "../queue/queue-constants";
 import { WorkflowRun } from "./workflow-run.entity";
 import { ConnectorService } from "../connector/connector.service";
@@ -55,6 +55,12 @@ export class WorkflowService {
         name: string;
         description?: string;
         fields: Array<Record<string, any>>;
+        availableActions: {
+          name: string;
+          description?: string;
+          requiredInformation: string[];
+          connectorsNeeded: string[];
+        }[];
       }[];
       connectorsNeeded: string[];
     }[]
@@ -67,7 +73,16 @@ export class WorkflowService {
         name: stepName,
         description: workflowStepConfigs[stepName]?.description,
         fields: workflowStepConfigs[stepName]?.fields || [],
-        availableActions: workflowStepConfigs[stepName]?.availableActions || [],
+        availableActions: (workflowStepConfigs[stepName]?.availableActions || []).map(
+          (actionName) => ({
+            name: actionName,
+            description: agentActions[actionName]?.description,
+            requiredInformation: [...(agentActions[actionName]?.requiredInformation || [])],
+            connectorsNeeded: [
+              ...(agentActions[actionName]?.connectorsNeeded || []),
+            ],
+          }),
+        ),
       })),
     }));
   }
@@ -93,9 +108,11 @@ export class WorkflowService {
   async createOrGetWorkflowRun({
     connectorId,
     context,
+    displayContext,
   }: {
     connectorId: string;
     context: Record<string, any>;
+    displayContext: Record<string, any>;
   }): Promise<WorkflowRun> {
     let workflowRun = await this.getWorkflowRunByContext({
       connectorId,
@@ -113,6 +130,7 @@ export class WorkflowService {
       workflowRun = this.workflowRunRepo.create({
         workflowId: workflow.id,
         context,
+        displayContext,
         status: WorkflowRunStatus.PENDING,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -288,12 +306,10 @@ export class WorkflowService {
             `Step "${step.name}" is not part of workflow "${workflow.name}"`,
           );
         }
-        const configuredActions =
-          workflowStepConfigs[step.name]?.availableActions || [];
-        if (step.allowedActions?.length) {
-          const invalidActions = step.allowedActions.filter(
-            (action) => !configuredActions.includes(action),
-          );
+        const configuredActions = workflowStepConfigs[step.name]?.availableActions || [];
+        const allowedActionNames = Object.keys(step.allowedActions || {});
+        if (allowedActionNames.length) {
+          const invalidActions = allowedActionNames.filter((action) => !configuredActions.includes(action));
           if (invalidActions.length) {
             throw new BadRequestException(
               `Step "${
@@ -347,10 +363,12 @@ export class WorkflowService {
     primaryIdentifier,
     workflowName,
     connectorTypeId,
+    displayContext,
   }: {
     primaryIdentifier: string;
     workflowName: string;
     connectorTypeId: string;
+    displayContext: Record<string, any>;
   }): Promise<WorkflowRun> {
     const workflow = (
       await this.workflowRepo.query(
@@ -378,6 +396,7 @@ export class WorkflowService {
             (step) => step.name === "Answer Calls",
           )?.allowedActions,
         },
+        displayContext,
         status: WorkflowRunStatus.PENDING,
         createdAt: Date.now(),
         updatedAt: Date.now(),

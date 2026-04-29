@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -20,8 +21,7 @@ import { LlmAgent, LlmAgentState } from "src/llm-integration/llm-agent";
 import { decrypt } from "src/util/helper-util";
 import { QueuePublisher } from "src/queue/queue.publisher";
 import { RagRetrievalService } from "src/rag/rag-retrieval.service";
-import { Events } from "src/queue/queue-constants";
-import { WorkflowRun } from "src/workflows/workflow-run.entity";
+import { SERVICE_MAP } from "src/service-mapping/service.map";
 
 export const TELEGRAM_CACHE_PREFIX = "telegram";
 
@@ -36,6 +36,11 @@ export class TelegramService {
     private readonly connectorService: ConnectorService,
     private readonly ragRetrievalService: RagRetrievalService,
     private readonly queuePublisher: QueuePublisher,
+    @Inject(SERVICE_MAP)
+    private readonly serviceMap: Record<
+      string,
+      { [key: string]: (...args: any[]) => Promise<any> }
+    >,
   ) {}
 
   isEnabled(): boolean {
@@ -88,10 +93,15 @@ export class TelegramService {
       } else {
         startedAt = initialState.startedAt;
       }
+      console.log(initialState);
       const run = await this.workflowService.createOrGetWorkflowRun({
         connectorId,
         context: {
           chatId,
+          userId: message.from?.username,
+          startedAt,
+        },
+        displayContext: {
           userId: message.from?.username,
           startedAt,
         },
@@ -100,6 +110,7 @@ export class TelegramService {
         this.config,
         this.ragRetrievalService,
         this.queuePublisher,
+        this.serviceMap,
         {
           source: run.id,
           skipPartialToken: true,
@@ -173,7 +184,6 @@ export class TelegramService {
       replyToMessageId?: number;
     },
   ): Promise<{ messageId: number }> {
-    console.log("sending message", connectorId, chatId, text, options);
     const connector = await this.connectorService.findOneById(connectorId);
     const botToken = await decrypt(
       connector?.credentials?.["Telegram Bot Secret"],

@@ -92,7 +92,7 @@ export class WorkflowStepDto {
 
   values: { [key: string]: any };
 
-  allowedActions: string[];
+  allowedActions: { [key: string]: { requiredInformation: string[] } };
 }
 export class Explanation {
   @IsString()

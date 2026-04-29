@@ -7,9 +7,17 @@ import { WorkflowModule } from "src/workflows/workflow.module";
 import { RagModule } from "../../rag/rag.module";
 import { CachingModule } from "src/cache/cache.module";
 import { QueueModule } from "src/queue/queue.module";
+import { ServiceMappingModule } from "src/service-mapping/service-mapping.module";
 
 @Module({
-  imports: [ConfigModule, WorkflowModule, RagModule, CachingModule, QueueModule],
+  imports: [
+    ConfigModule,
+    WorkflowModule,
+    RagModule,
+    CachingModule,
+    QueueModule,
+    ServiceMappingModule,
+  ],
   controllers: [TwilioVoiceController],
   providers: [TwilioVoiceService, TwilioMediaGateway],
   exports: [TwilioVoiceService],

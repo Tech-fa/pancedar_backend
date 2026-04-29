@@ -81,9 +81,10 @@ export class TwilioVoiceService {
    * Twilio will open a WebSocket to `streamUrl` and send base64 μ-law 8k
    * audio; we send audio back on the same WebSocket.
    */
-  async buildIncomingTwiML(calledE164?: string): Promise<string> {
+  async buildIncomingTwiML(calledE164?: string, fromNumber?: string): Promise<string> {
     const [streamUrl, greetingMessage] = await this.buildMediaStreamUrl(
       calledE164,
+      fromNumber,
     );
     return `<?xml version="1.0" encoding="UTF-8"?>
             <Response>
@@ -106,7 +107,7 @@ export class TwilioVoiceService {
   /**
    * Base WebSocket URL from TWILIO_MEDIA_WEBSOCKET_URL, with `to` query set to the dialed number.
    */
-  async buildMediaStreamUrl(calledE164?: string): Promise<[string, string]> {
+  async buildMediaStreamUrl(calledE164?: string, fromNumber?: string): Promise<[string, string]> {
     const base = this.config.get<string>("TWILIO_MEDIA_WEBSOCKET_URL");
     if (!base?.trim()) {
       throw new Error("TWILIO_MEDIA_WEBSOCKET_URL is not configured");
@@ -119,6 +120,9 @@ export class TwilioVoiceService {
           primaryIdentifier: calledE164.trim(),
           workflowName: "voice-assistant",
           connectorTypeId: "twilio",
+          displayContext: {
+            from: fromNumber,
+          },
         },
       );
       this.cacheService.setData(`${TWILIO_CACHE_PREFIX}_${workflowRun.id}`, JSON.stringify(workflowRun.context), 3600 * 24);
