@@ -82,7 +82,7 @@ export const agentActions = {
   COLLECT_INFORMATION: {
     description: "Collect information from the user",
     requiredInformation: ["name", "email", "phone"],
-    connectorsNeeded: ["Gmail"] as const,
+    connectorsNeeded: ["Telegram"] as const,
   },
 } as const;
 

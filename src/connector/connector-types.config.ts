@@ -38,6 +38,15 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
     multiLink: true,
   },
   {
+    name: "Google Business Reviews",
+    serviceName: "googleBusinessReviews",
+    oauthUrl: `${process.env.API_URL}/google-business-reviews/oauth`,
+    disconnectPath: "/google-business-reviews/disconnect",
+    description:
+      "Google Business Profile connector for pulling business location reviews.",
+    multiLink: true,
+  },
+  {
     name: "Twilio",
     serviceName: "twilioVoice",
     description: "Phone number for AI-powered phone calls and messages.",
@@ -47,6 +56,32 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
         type: "text",
         required: true,
         isPrimaryIdentifier: true,
+      },
+    ],
+    multiLink: false,
+  },
+  {
+    name: "WhatsApp",
+    serviceName: "whatsApp",
+    description:
+      "WhatsApp Business connector for sending messages from a business number.",
+    fields: [
+      {
+        name: "WhatsApp Business Number",
+        type: "text",
+        required: true,
+        isPrimaryIdentifier: true,
+      },
+      {
+        name: "WhatsApp Phone Number ID",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "WhatsApp Access Token",
+        type: "text",
+        required: true,
+        secret: true,
       },
     ],
     multiLink: false,

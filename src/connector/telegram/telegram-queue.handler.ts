@@ -43,7 +43,6 @@ export class TelegramQueueHandler {
 
       const botToken = await decrypt(encryptedBotToken);
       const webhookUrl = this.telegramService.webhookUrl();
-      console.log(botToken, payload.connectorId);
       try {
         await this.telegramService.registerWebhook(
           botToken,

@@ -59,6 +59,11 @@ export class TwilioMediaGateway
     const context = JSON.parse(
       await this.cacheService.getData(`${TWILIO_CACHE_PREFIX}_${runId}`),
     ) as any;
+    if (!context) {
+      this.logger.error("Context not found for runId", { runId });
+      client.close();
+      return;
+    }
     const llmAgent = new LlmAgent(
       this.config,
       this.ragRetrievalService,
