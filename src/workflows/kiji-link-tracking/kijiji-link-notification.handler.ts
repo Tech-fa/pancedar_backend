@@ -41,13 +41,15 @@ export class KijijiLinkNotificationHandler {
       const workflowRun = await this.workflowService.findWorkflowRunByWorkflowId(
         payload.workflowId,
       );
-      await sendMessage(
-        workflowRun.context.chatId,
-        this.formatMessage(payload),
-        {
-          botToken: process.env.TELEGRAM_BOT_TOKEN,
-        },
-      );
+      if (workflowRun.context.chatId) {
+        await sendMessage(
+          workflowRun.context.chatId,
+          this.formatMessage(payload),
+          {
+            botToken: process.env.TELEGRAM_BOT_TOKEN,
+          },
+        );
+      }
     } catch (error) {
       this.logger.error("Failed to send Kijiji Telegram notification", {
         message: error?.message,
