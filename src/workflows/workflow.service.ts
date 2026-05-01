@@ -15,7 +15,11 @@ import {
   WorkflowRunStatus,
 } from "./dto";
 import { UserRequest } from "../permissions/dto";
-import { agentActions, workflowConfigs, workflowStepConfigs } from "./workflow-config";
+import {
+  agentActions,
+  workflowConfigs,
+  workflowStepConfigs,
+} from "./workflow-config";
 import { Events } from "../queue/queue-constants";
 import { WorkflowRun } from "./workflow-run.entity";
 import { ConnectorService } from "../connector/connector.service";
@@ -47,6 +51,13 @@ export class WorkflowService {
     });
   }
 
+  async findByConnectorType(connectorType: string): Promise<Workflow[]> {
+    return await this.workflowRepo.find({
+      where: { linkedConnectors: { connectorTypeId: connectorType } },
+      relations: ["linkedConnectors"],
+    });
+  }
+
   async findAvailableWorkflows(): Promise<
     {
       name: string;
@@ -73,16 +84,18 @@ export class WorkflowService {
         name: stepName,
         description: workflowStepConfigs[stepName]?.description,
         fields: workflowStepConfigs[stepName]?.fields || [],
-        availableActions: (workflowStepConfigs[stepName]?.availableActions || []).map(
-          (actionName) => ({
-            name: actionName,
-            description: agentActions[actionName]?.description,
-            requiredInformation: [...(agentActions[actionName]?.requiredInformation || [])],
-            connectorsNeeded: [
-              ...(agentActions[actionName]?.connectorsNeeded || []),
-            ],
-          }),
-        ),
+        availableActions: (
+          workflowStepConfigs[stepName]?.availableActions || []
+        ).map((actionName) => ({
+          name: actionName,
+          description: agentActions[actionName]?.description,
+          requiredInformation: [
+            ...(agentActions[actionName]?.requiredInformation || []),
+          ],
+          connectorsNeeded: [
+            ...(agentActions[actionName]?.connectorsNeeded || []),
+          ],
+        })),
       })),
     }));
   }
@@ -189,6 +202,12 @@ export class WorkflowService {
       updatedAt: Date.now(),
     });
     return this.workflowRepo.save(workflow);
+  }
+
+  async findWorkflowRunByWorkflowId(workflowId: string): Promise<WorkflowRun> {
+    return this.workflowRunRepo.findOne({
+      where: { workflowId },
+    });
   }
 
   async findOne(user: UserRequest, id: string): Promise<Workflow> {
@@ -306,10 +325,13 @@ export class WorkflowService {
             `Step "${step.name}" is not part of workflow "${workflow.name}"`,
           );
         }
-        const configuredActions = workflowStepConfigs[step.name]?.availableActions || [];
+        const configuredActions =
+          workflowStepConfigs[step.name]?.availableActions || [];
         const allowedActionNames = Object.keys(step.allowedActions || {});
         if (allowedActionNames.length) {
-          const invalidActions = allowedActionNames.filter((action) => !configuredActions.includes(action));
+          const invalidActions = allowedActionNames.filter(
+            (action) => !configuredActions.includes(action),
+          );
           if (invalidActions.length) {
             throw new BadRequestException(
               `Step "${
@@ -364,11 +386,13 @@ export class WorkflowService {
     workflowName,
     connectorTypeId,
     displayContext,
+    injectContext,
   }: {
     primaryIdentifier: string;
     workflowName: string;
     connectorTypeId: string;
     displayContext: Record<string, any>;
+    injectContext: (workflow: Workflow) => Record<string, any>;
   }): Promise<WorkflowRun> {
     const workflow = (
       await this.workflowRepo.query(
@@ -386,16 +410,7 @@ export class WorkflowService {
         workflowId: workflow.id,
         context: {
           primaryIdentifier,
-          greetingMessage: workflow.steps.find(
-            (step) => step.name === "Answer Calls",
-          )?.values.greetingMessage,
-          assistantMission: workflow.steps.find(
-            (step) => step.name === "Answer Calls",
-          )?.values.assistantMission,
-          allowedActions: workflow.steps.find(
-            (step) => step.name === "Answer Calls",
-          )?.allowedActions,
-          teamId: workflow.teamId,
+          ...injectContext(workflow),
         },
         displayContext,
         status: WorkflowRunStatus.PENDING,
@@ -477,6 +492,7 @@ export class WorkflowService {
   }
 
   async delete(user: UserRequest, id: string): Promise<void> {
+    await this.workflowRunRepo.delete({ workflowId: id });
     await this.workflowRepo.remove(
       await this.workflowRepo.findOne({
         where: { id, teamId: user.teamId },

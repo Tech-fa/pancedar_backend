@@ -75,7 +75,7 @@ export class ConnectorService {
       name: typeConfig.name,
       connectorTypeId: connectorTypeName,
       primaryIdentifier:
-        credentials[primaryIdentifier] || `${connectorTypeName}-${now}`,
+        credentials?.[primaryIdentifier] || `${connectorTypeName}-${now}`,
       credentials,
       status: typeConfig.oauthUrl
         ? ConnectorStatus.PENDING
@@ -104,7 +104,9 @@ export class ConnectorService {
     }
     await this.connectorRepo.save(connector);
     return {
-      oauthUrl: this.findTypeByName(connector.connectorTypeId).oauthUrl,
+      oauthUrl: `${
+        this.findTypeByName(connector.connectorTypeId).oauthUrl
+      }?connectorId=${connector.id}`,
     };
   }
 

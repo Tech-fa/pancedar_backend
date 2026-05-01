@@ -31,6 +31,8 @@ import { TelegramModule } from './connector/telegram/telegram.module';
 import { AgentCommunicationModule } from './agent-communication/agent-communication.module';
 import { GoogleBusinessReviewsModule } from './connector/google-business-reviews/google-business-reviews.module';
 import { WhatsAppModule } from './connector/whatsapp/whatsapp.module';
+import { GoogleAccountsModule } from './google-accounts/google-accounts.module';
+import { KijijiLinkTrackingModule } from './workflows/kiji-link-tracking/kijiji-link-tracking.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -79,6 +81,8 @@ import { WhatsAppModule } from './connector/whatsapp/whatsapp.module';
     ResourceIngestionModule,
     CostModule,
     AgentCommunicationModule,
+    GoogleAccountsModule,
+    KijijiLinkTrackingModule,
   ],
   controllers: [AppController],
   providers: [

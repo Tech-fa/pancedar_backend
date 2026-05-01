@@ -10,12 +10,10 @@ import {
   Res,
 } from "@nestjs/common";
 import type { Request } from "express";
-import { hasPermission } from "../../authentication/permission.decorator";
-import { connectorPermission } from "../../permissions/permissions";
 import { Public } from "../../util/constants";
 import { TelegramWebhookUpdateDto } from "./dto";
-import { TelegramService } from "./telegram.service";
-import { formatResponse } from "src/util/helper-util";
+import { TelegramService } from "./telegram-ai-agent.service";
+import { assertValidWebhookRequest } from "./telegram-util";
 
 @Controller("connector/telegram")
 export class TelegramController {
@@ -30,7 +28,7 @@ export class TelegramController {
     @Req() req: Request,
     @Body() update: TelegramWebhookUpdateDto,
   ): Promise<{ ok: true; messageId?: string }> {
-    // this.telegramService.assertValidWebhookRequest(req);
+    assertValidWebhookRequest(req);
     await this.telegramService.handleWebhookUpdate(connectorId, update);
     return { ok: true };
   }

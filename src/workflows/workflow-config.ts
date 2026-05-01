@@ -26,8 +26,22 @@ export const workflowConfigs = {
     description:
       "Telegram assistant that replies to telegram messages based on the context of the message and the available resources of your set categories",
     steps: ["Reply to Message"],
-    connectorsNeeded: ["Telegram"],
+    connectorsNeeded: ["Telegram AI Agent"],
     entitiesNeeded: ["email_workflow_categories", "agent_communications"],
+  },
+  "google-business-reviews-assistant": {
+    description:
+      "Google Business Reviews assistant that replies to google business reviews messages based on the context of the message and the available resources of your set categories",
+    steps: [],
+    connectorsNeeded: ["Google Business Reviews"],
+    entitiesNeeded: ["google_accounts"],
+  },
+  "kijiji-notifier": {
+    description:
+      "Kijiji notifier that notifies you when new items are posted on Kijiji.",
+    steps: ["search-kijiji", "notify"],
+    connectorsNeeded: ["Kijiji"],
+    entitiesNeeded: ["kijiji_links"],
   },
 };
 
@@ -51,7 +65,7 @@ export const workflowStepConfigs = {
         required: true,
       },
     ],
-    availableActions: ["COLLECT_INFORMATION"],
+    availableActions: [],
   },
   "Reply to Message": {
     description: "Reply to chat messages with a response.",
@@ -63,7 +77,7 @@ export const workflowStepConfigs = {
         required: true,
       },
     ],
-    availableActions: ["COLLECT_INFORMATION"],
+    availableActions: [],
   },
   "Reply Email": {
     description: "Reply to email with a response.",
@@ -76,13 +90,27 @@ export const workflowStepConfigs = {
       },
     ],
   },
+  "search-kijiji": {
+    description: "Search Kijiji for items.",
+    fields: [
+      {
+        label: "Search Link",
+        name: "searchLink",
+        type: "text",
+        required: true,
+      },
+    ],
+  },
+  notify: {
+    description: "Notify the user when new items are posted on Kijiji.",
+  },
 };
 
 export const agentActions = {
   COLLECT_INFORMATION: {
     description: "Collect information from the user",
     requiredInformation: ["name", "email", "phone"],
-    connectorsNeeded: ["Telegram"] as const,
+    connectorsNeeded: ["Telegram AI Agent"] as const,
   },
 } as const;
 

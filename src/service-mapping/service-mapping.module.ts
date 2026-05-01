@@ -3,14 +3,13 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ServiceMapProvider } from "./service.map";
 import { ENTITIES, SCHEMAS } from "./models";
-import { CollectInformationAction } from "src/workflows/steps/agent/collect-information";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature(ENTITIES),
     MongooseModule.forFeature(SCHEMAS),
   ],
-  providers: [ServiceMapProvider, CollectInformationAction],
+  providers: [ServiceMapProvider],
   exports: [ServiceMapProvider],
 })
 export class ServiceMappingModule {}

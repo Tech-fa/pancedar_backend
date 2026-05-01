@@ -1,10 +1,13 @@
-import { RabbitSubscribe } from "@golevelup/nestjs-rabbitmq";
-import { Injectable, Logger } from "@nestjs/common";
-import { Events, getListening } from "../../queue/queue-constants";
-import { GoogleSerivce } from "./google.service";
-import { Public } from "../../util/constants";
-import { ConnectorService } from "../connector.service";
-import { GmailWorkflowReplyPayload } from "../../email-handler/dto";
+import { RabbitSubscribe } from '@golevelup/nestjs-rabbitmq';
+import { Injectable, Logger } from '@nestjs/common';
+import { Events, getListening } from '../../queue/queue-constants';
+import { GoogleSerivce } from './google.service';
+import { Public } from '../../util/constants';
+import { ConnectorService } from '../connector.service';
+import { GmailWorkflowReplyPayload } from '../../email-handler/dto';
+import { Connector } from '../connector.entity';
+import { GoogleConnectorAuthService } from '../google-connector-auth.service';
+import { GoogleBusinessReviewsService } from '../google-business-reviews/google-business-reviews.service';
 
 @Injectable()
 export class GoogleRabbitHandler {
@@ -12,6 +15,7 @@ export class GoogleRabbitHandler {
 
   constructor(
     private readonly googleService: GoogleSerivce,
+    private readonly googleBusinessReviewsService: GoogleBusinessReviewsService,
     private readonly connectorService: ConnectorService,
   ) {}
 
@@ -51,7 +55,23 @@ export class GoogleRabbitHandler {
         this.logger.warn(`Connector ${payload.connectorId} not found`);
         return;
       }
-      await this.googleService.renewTokenForConnector(connector);
+      const googleAuthService = this.googleAuthServiceForConnector(connector);
+      if (!googleAuthService) {
+        this.logger.warn(
+          `No Google token renewal service for connector type ${connector.connectorTypeId}`,
+        );
+        return;
+      }
+
+      const credential =
+        await googleAuthService.renewTokenForConnector(connector);
+      if (!credential) {
+        this.logger.warn(
+          `Could not renew token for connector ${payload.connectorId}`,
+        );
+        return;
+      }
+
       this.logger.log(
         `Successfully renewed token for connector ${payload.connectorId}`,
       );
@@ -78,5 +98,18 @@ export class GoogleRabbitHandler {
       );
       throw error;
     }
+  }
+
+  private googleAuthServiceForConnector(
+    connector: Connector,
+  ): GoogleConnectorAuthService | null {
+    const connectorType = (connector.connectorTypeId || '').toLowerCase();
+    if (connectorType === 'gmail') {
+      return this.googleService;
+    }
+    if (connectorType === 'google business reviews') {
+      return this.googleBusinessReviewsService;
+    }
+    return null;
   }
 }

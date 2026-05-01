@@ -4,7 +4,7 @@ import { ConnectorService } from "../connector.service";
 import { Events, getListening } from "../../queue/queue-constants";
 import { Public } from "../../util/constants";
 import { decrypt } from "../../util/helper-util";
-import { TelegramService } from "./telegram.service";
+import { TelegramService } from "./telegram-ai-agent.service";
 
 @Injectable()
 export class TelegramQueueHandler {
@@ -25,7 +25,7 @@ export class TelegramQueueHandler {
         );
         return;
       }
-
+      console.log("payload", payload);
       const connector = await this.connectorService.findOneById(
         payload.connectorId,
       );

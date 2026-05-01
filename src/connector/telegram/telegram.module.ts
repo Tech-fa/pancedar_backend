@@ -2,7 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { TelegramController } from "./telegram.controller";
-import { TelegramService } from "./telegram.service";
+import { TelegramService } from "./telegram-ai-agent.service";
 import { WorkflowModule } from "src/workflows/workflow.module";
 import { ConnectorModule } from "../connector.module";
 import { TelegramQueueHandler } from "./telegram-queue.handler";

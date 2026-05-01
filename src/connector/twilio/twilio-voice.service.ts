@@ -5,6 +5,7 @@ import twilio, { Twilio } from "twilio";
 import { WorkflowService } from "src/workflows/workflow.service";
 import * as tClient from "twilio";
 import { CacheService } from "src/cache/cache.service";
+import { Workflow } from "src/workflows/workflow.entity";
 
 export const TWILIO_MEDIA_PATH = "/connector/twilio/media";
 export const TWILIO_CACHE_PREFIX = "twilio_voice";
@@ -81,7 +82,10 @@ export class TwilioVoiceService {
    * Twilio will open a WebSocket to `streamUrl` and send base64 μ-law 8k
    * audio; we send audio back on the same WebSocket.
    */
-  async buildIncomingTwiML(calledE164?: string, fromNumber?: string): Promise<string> {
+  async buildIncomingTwiML(
+    calledE164?: string,
+    fromNumber?: string,
+  ): Promise<string> {
     const [streamUrl, greetingMessage] = await this.buildMediaStreamUrl(
       calledE164,
       fromNumber,
@@ -107,7 +111,10 @@ export class TwilioVoiceService {
   /**
    * Base WebSocket URL from TWILIO_MEDIA_WEBSOCKET_URL, with `to` query set to the dialed number.
    */
-  async buildMediaStreamUrl(calledE164?: string, fromNumber?: string): Promise<[string, string]> {
+  async buildMediaStreamUrl(
+    calledE164?: string,
+    fromNumber?: string,
+  ): Promise<[string, string]> {
     const base = this.config.get<string>("TWILIO_MEDIA_WEBSOCKET_URL");
     if (!base?.trim()) {
       throw new Error("TWILIO_MEDIA_WEBSOCKET_URL is not configured");
@@ -120,12 +127,28 @@ export class TwilioVoiceService {
           primaryIdentifier: calledE164.trim(),
           workflowName: "voice-assistant",
           connectorTypeId: "twilio",
+          injectContext: (workflow: Workflow) => ({
+            greetingMessage: workflow.steps.find(
+              (step) => step.name === "Answer Calls",
+            )?.values.greetingMessage,
+            assistantMission: workflow.steps.find(
+              (step) => step.name === "Answer Calls",
+            )?.values.assistantMission,
+            allowedActions: workflow.steps.find(
+              (step) => step.name === "Answer Calls",
+            )?.allowedActions,
+            teamId: workflow.teamId,
+          }),
           displayContext: {
             from: fromNumber,
           },
         },
       );
-      this.cacheService.setData(`${TWILIO_CACHE_PREFIX}_${workflowRun.id}`, JSON.stringify(workflowRun.context), 3600 * 24);
+      this.cacheService.setData(
+        `${TWILIO_CACHE_PREFIX}_${workflowRun.id}`,
+        JSON.stringify(workflowRun.context),
+        3600 * 24,
+      );
       u.searchParams.set("runId", workflowRun.id);
       greetingMessage = workflowRun.context.greetingMessage;
     }

@@ -8,7 +8,7 @@ import { Events } from "src/queue/queue-constants";
 import { QueuePublisher } from "src/queue/queue.publisher";
 import { WorkflowRunStatus } from "src/workflows/dto";
 import { WorkflowRun } from "src/workflows/workflow-run.entity";
-import { TELEGRAM_CACHE_PREFIX } from "./telegram.service";
+import { TELEGRAM_CACHE_PREFIX } from "./telegram-ai-agent.service";
 
 const TELEGRAM_ASSISTANT_WORKFLOW_TYPE = "telegram-assistant";
 const TEN_MINUTES_MS = 10 * 60 * 1000;

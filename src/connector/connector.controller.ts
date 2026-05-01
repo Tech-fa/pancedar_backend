@@ -92,7 +92,7 @@ export class ConnectorController {
         );
         let oauthUrl: string | undefined;
         if (typeConfig?.oauthUrl) {
-          oauthUrl = typeConfig.oauthUrl;
+          oauthUrl = `${typeConfig.oauthUrl}?connectorId=${connector.id}`;
         }
         return { connectorId: connector.id, connector, oauthUrl };
       })(),

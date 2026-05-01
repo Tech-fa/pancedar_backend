@@ -154,12 +154,28 @@ export const agentCommunicationPermission = {
   base_route: "agent-communications",
 };
 
+export const googleAccountsPermission = {
+  subject: "google_accounts",
+  label: "Google Accounts",
+  actions: [PermissionEnum.READ],
+  service_tag: "google_accounts",
+  base_route: "google-accounts",
+};
+
 export const workflowPermission = {
   subject: "workflows",
   label: "Workflow",
   actions: actions,
   service_tag: "workflows",
   base_route: "workflows",
+};
+
+export const kijijiLinksPermission = {
+  subject: "kijiji_links",
+  label: "Kijiji Links",
+  actions: [PermissionEnum.READ],
+  service_tag: "kijiji_links",
+  base_route: "kijiji-links",
 };
 
 export const costPermission = {
@@ -225,12 +241,15 @@ export const permissions: {
   permissionPermission,
   costPermission,
   agentCommunicationPermission,
+  googleAccountsPermission,
+  kijijiLinksPermission
 };
 
 export const permissionTree: {
   [key: string]: PermissionTree;
 } = {
   teamPermission,
+  kijijiLinksPermission,
   userPermission,
   emailWorkflowCategoryPermission,
   workflowPermission,
@@ -239,6 +258,7 @@ export const permissionTree: {
   permissionPermission,
   costPermission,
   agentCommunicationPermission,
+  googleAccountsPermission,
 };
 
 export const defaultPermissionGroups = [

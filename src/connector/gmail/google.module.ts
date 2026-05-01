@@ -1,16 +1,17 @@
-import { Module } from "@nestjs/common";
+import { Module } from '@nestjs/common';
 
-import { GoogleSerivce } from "./google.service";
-import { GoogleController } from "./google.controller";
-import { UsersModule } from "../../user/user.module";
-import { QueueModule } from "../../queue/queue.module";
-import { GoogleQueueHandler } from "./google-queue.handler";
-import { GoogleRabbitHandler } from "./google-rabbit.handler";
-import { AuthModule } from "../../authentication/auth.module";
-import { ConfigService } from "@nestjs/config";
-import { ConnectorModule } from "../connector.module";
-import { GoogleCron } from "./google-cron";
-import { CachingModule } from "../../cache/cache.module";
+import { GoogleSerivce } from './google.service';
+import { GoogleController } from './google.controller';
+import { UsersModule } from '../../user/user.module';
+import { QueueModule } from '../../queue/queue.module';
+import { GoogleQueueHandler } from './google-queue.handler';
+import { GoogleRabbitHandler } from './google-rabbit.handler';
+import { AuthModule } from '../../authentication/auth.module';
+import { ConfigService } from '@nestjs/config';
+import { ConnectorModule } from '../connector.module';
+import { GoogleCron } from './google-cron';
+import { CachingModule } from '../../cache/cache.module';
+import { GoogleBusinessReviewsModule } from '../google-business-reviews/google-business-reviews.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CachingModule } from "../../cache/cache.module";
     AuthModule,
     ConnectorModule,
     CachingModule,
+    GoogleBusinessReviewsModule,
   ],
   providers: [
     GoogleSerivce,
@@ -35,6 +37,6 @@ export class GoogleModule {
     private readonly configService: ConfigService,
   ) {}
   async onModuleInit() {
-    this.googleService.subscribe(this.configService.get("GOOGLE_QUEUE_SUB"));
+    this.googleService.subscribe(this.configService.get('GOOGLE_QUEUE_SUB'));
   }
 }

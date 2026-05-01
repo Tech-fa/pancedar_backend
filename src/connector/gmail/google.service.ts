@@ -1,62 +1,57 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { JwtService } from "@nestjs/jwt";
-import * as crypto from "crypto";
-import { Credentials, OAuth2Client } from "google-auth-library";
-import { google } from "googleapis";
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Credentials } from 'google-auth-library';
+import { google } from 'googleapis';
 
-import { QueuePublisher } from "../../queue/queue.publisher";
-import { Events } from "../../queue/queue-constants";
-import {
-  aboutToExpire,
-  decrypt,
-  encrypt,
-  getHeader,
-} from "../../util/helper-util";
-import { UsersService } from "../../user/user.service";
-import { ConnectorService } from "../connector.service";
-import { ConnectorStatus } from "../dto";
-import { Connector } from "../connector.entity";
-import { GmailWorkflowReplyPayload } from "../../email-handler/dto";
+import { QueuePublisher } from '../../queue/queue.publisher';
+import { Events } from '../../queue/queue-constants';
+import { aboutToExpire, decrypt, getHeader } from '../../util/helper-util';
+import { UsersService } from '../../user/user.service';
+import { ConnectorService } from '../connector.service';
+import { ConnectorStatus } from '../dto';
+import { Connector } from '../connector.entity';
+import { GmailWorkflowReplyPayload } from '../../email-handler/dto';
+import { GoogleConnectorAuthService } from '../google-connector-auth.service';
+
+const GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/gmail.modify',
+];
 
 @Injectable()
-export class GoogleSerivce {
+export class GoogleSerivce extends GoogleConnectorAuthService {
   private readonly logger = new Logger(GoogleSerivce.name);
-  oauth2Client: OAuth2Client;
-  scopes = [
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/gmail.modify",
-  ];
+
   constructor(
     private configService: ConfigService,
     private userService: UsersService,
     private queueProducer: QueuePublisher,
     private connectorService: ConnectorService,
   ) {
-    this.oauth2Client = new google.auth.OAuth2(
-      this.configService.get("GOOGLE_CLIENT_ID"),
-      this.configService.get("GOOGLE_CLIENT_SECRET"),
-      `${process.env.API_URL}/gmail/verify`,
-    );
+    super(configService, connectorService, new Logger(GoogleSerivce.name), {
+      connectorTypeId: 'Gmail',
+      redirectPath: '/gmail/verify',
+      scopes: GMAIL_SCOPES,
+      serviceLabel: 'Gmail',
+    });
   }
 
   async messageHandler(message) {
     try {
       this.logger.log(`received a message from google`);
 
-      if (this.configService.get("SKIP_GMAIL_SYNC") == "true") {
+      if (this.configService.get('SKIP_GMAIL_SYNC') == 'true') {
         this.logger.log(`Skipping Gmail sync`);
         message.ack();
         return;
       }
-      const json = JSON.parse(Buffer.from(message.data).toString("utf8"));
-      const inboxEmail = json["emailAddress"];
-
+      const json = JSON.parse(Buffer.from(message.data).toString('utf8'));
+      const inboxEmail = json['emailAddress'];
 
       // Find credential by inbox email
       const connector = await this.connectorService.findOneByPrimaryIdentifier(
         inboxEmail,
-        "gmail",
+        'gmail',
       );
 
       if (!connector) {
@@ -87,7 +82,7 @@ export class GoogleSerivce {
 
       const tokens = JSON.parse(await decrypt(newCredential.tokens));
 
-      const gmail = await google.gmail("v1");
+      const gmail = await google.gmail('v1');
       const lastHistory = credential.lastHistoryId;
 
       newCredential.lastHistoryId = json.historyId;
@@ -102,8 +97,8 @@ export class GoogleSerivce {
         );
         const messagesResponse = await gmail.users.messages.list(
           {
-            userId: "me",
-            labelIds: ["INBOX"],
+            userId: 'me',
+            labelIds: ['INBOX'],
             maxResults: 3, // Fetch last 20 emails on first sync
           },
           { headers: { Authorization: `Bearer ${tokens.access_token}` } },
@@ -113,9 +108,9 @@ export class GoogleSerivce {
         // Subsequent: use history API to get new messages
         const emails = await gmail.users.history.list(
           {
-            userId: "me",
+            userId: 'me',
             startHistoryId: lastHistory,
-            labelId: "INBOX",
+            labelId: 'INBOX',
           },
           { headers: { Authorization: `Bearer ${tokens.access_token}` } },
         );
@@ -133,9 +128,8 @@ export class GoogleSerivce {
       // Process each message
       for (const msgId of messageIds) {
         // Check if we already have this message
-        const existingEmail = await this.userService.findIncomingEmailByMessageId(
-          msgId,
-        );
+        const existingEmail =
+          await this.userService.findIncomingEmailByMessageId(msgId);
         if (existingEmail) {
           this.logger.log(`Message ${msgId} already exists, skipping`);
           continue;
@@ -147,11 +141,11 @@ export class GoogleSerivce {
           gmail,
         );
 
-        const senderMatch = (emailData.from || "").match(/<([^>]+)>/);
-        const senderEmail = (senderMatch?.[1] || emailData.from || "")
+        const senderMatch = (emailData.from || '').match(/<([^>]+)>/);
+        const senderEmail = (senderMatch?.[1] || emailData.from || '')
           .trim()
           .toLowerCase();
-        const ownEmail = (inboxEmail || "").trim().toLowerCase();
+        const ownEmail = (inboxEmail || '').trim().toLowerCase();
 
         if (senderEmail === ownEmail) {
           this.logger.log(
@@ -192,19 +186,19 @@ export class GoogleSerivce {
 
   extractHtml(payload): string {
     if (!payload) {
-      return "";
+      return '';
     }
 
     // Case 1: Simple email with content directly in body (no parts)
-    if (payload.mimeType === "text/html" && payload.body?.data) {
-      return Buffer.from(payload.body.data, "base64").toString("utf-8");
+    if (payload.mimeType === 'text/html' && payload.body?.data) {
+      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
     }
 
     // Case 2: Check parts array
     if (payload.parts) {
       for (const part of payload.parts) {
-        if (part.mimeType === "text/html" && part.body?.data) {
-          return Buffer.from(part.body.data, "base64").toString("utf-8");
+        if (part.mimeType === 'text/html' && part.body?.data) {
+          return Buffer.from(part.body.data, 'base64').toString('utf-8');
         }
 
         // Recursively check nested parts (multipart/alternative, multipart/related, etc.)
@@ -215,24 +209,24 @@ export class GoogleSerivce {
       }
     }
 
-    return "";
+    return '';
   }
 
   extractText(payload): string {
     if (!payload) {
-      return "";
+      return '';
     }
 
     // Case 1: Simple email with content directly in body (no parts)
-    if (payload.mimeType === "text/plain" && payload.body?.data) {
-      return Buffer.from(payload.body.data, "base64").toString("utf-8");
+    if (payload.mimeType === 'text/plain' && payload.body?.data) {
+      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
     }
 
     // Case 2: Check parts array
     if (payload.parts) {
       for (const part of payload.parts) {
-        if (part.mimeType === "text/plain" && part.body?.data) {
-          return Buffer.from(part.body.data, "base64").toString("utf-8");
+        if (part.mimeType === 'text/plain' && part.body?.data) {
+          return Buffer.from(part.body.data, 'base64').toString('utf-8');
         }
 
         // Recursively check nested parts (multipart/alternative, multipart/related, etc.)
@@ -243,19 +237,19 @@ export class GoogleSerivce {
       }
     }
 
-    return "";
+    return '';
   }
 
   // Fallback: extract any readable content from the email
   extractAnyContent(payload): string {
     if (!payload) {
-      return "";
+      return '';
     }
 
     // Try to get content directly from body
     if (payload.body?.data) {
       try {
-        return Buffer.from(payload.body.data, "base64").toString("utf-8");
+        return Buffer.from(payload.body.data, 'base64').toString('utf-8');
       } catch {
         // Ignore decoding errors
       }
@@ -272,8 +266,8 @@ export class GoogleSerivce {
         // Try to extract from this part
         if (part.body?.data) {
           try {
-            const content = Buffer.from(part.body.data, "base64").toString(
-              "utf-8",
+            const content = Buffer.from(part.body.data, 'base64').toString(
+              'utf-8',
             );
             if (content) return content;
           } catch {
@@ -289,13 +283,13 @@ export class GoogleSerivce {
       }
     }
 
-    return "";
+    return '';
   }
 
   async getMessage(token, id, gmail) {
     const response = await gmail.users.messages.get(
       {
-        userId: "me",
+        userId: 'me',
         id,
       },
       { headers: { Authorization: `Bearer ${token}` } },
@@ -310,7 +304,7 @@ export class GoogleSerivce {
       const fallbackContent = this.extractAnyContent(payload);
       if (fallbackContent) {
         // Determine if it looks like HTML or plain text
-        if (fallbackContent.includes("<") && fallbackContent.includes(">")) {
+        if (fallbackContent.includes('<') && fallbackContent.includes('>')) {
           html = fallbackContent;
         } else {
           text = fallbackContent;
@@ -321,18 +315,18 @@ export class GoogleSerivce {
     // If we still only have HTML, generate plain text from it
     if (!text && html) {
       text = html
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
         .trim();
     }
 
     return {
       id: response.data.id,
-      subject: getHeader(payload.headers, "Subject"),
-      from: getHeader(payload.headers, "From"),
+      subject: getHeader(payload.headers, 'Subject'),
+      from: getHeader(payload.headers, 'From'),
       text,
       textAsHtml: html,
-      creationDate: new Date(getHeader(payload.headers, "Date")).valueOf(),
+      creationDate: new Date(getHeader(payload.headers, 'Date')).valueOf(),
     };
   }
 
@@ -341,10 +335,10 @@ export class GoogleSerivce {
       // Archive = remove INBOX label (email remains in "All Mail")
       await gmail.users.messages.modify(
         {
-          userId: "me",
+          userId: 'me',
           id: messageId,
           requestBody: {
-            removeLabelIds: ["INBOX"],
+            removeLabelIds: ['INBOX'],
           },
         },
         { headers: { Authorization: `Bearer ${token}` } },
@@ -358,11 +352,11 @@ export class GoogleSerivce {
 
   async trashMessage(token: string, messageId: string) {
     try {
-      const gmail = google.gmail("v1");
+      const gmail = google.gmail('v1');
       // Move message to trash
       await gmail.users.messages.trash(
         {
-          userId: "me",
+          userId: 'me',
           id: messageId,
         },
         { headers: { Authorization: `Bearer ${token}` } },
@@ -404,7 +398,7 @@ export class GoogleSerivce {
   ): Promise<void> {
     const incomingEmail = await this.userService.findIncomingEmailById(
       payload.incomingEmailId,
-      ["connector", "workflowRun", "workflowRun.workflow"],
+      ['connector', 'workflowRun', 'workflowRun.workflow'],
     );
     if (!incomingEmail) {
       throw new BadRequestException(
@@ -417,7 +411,7 @@ export class GoogleSerivce {
       );
     }
     if (
-      (incomingEmail.connector.connectorTypeId || "").toLowerCase() !== "gmail"
+      (incomingEmail.connector.connectorTypeId || '').toLowerCase() !== 'gmail'
     ) {
       throw new BadRequestException(
         `Connector type "${incomingEmail.connector.connectorTypeId}" is not Gmail`,
@@ -432,19 +426,19 @@ export class GoogleSerivce {
         `No valid access token for connector ${incomingEmail.connectorId}`,
       );
     }
-    const gmail = google.gmail("v1");
+    const gmail = google.gmail('v1');
     const originalMessage = await gmail.users.messages.get(
-      { userId: "me", id: incomingEmail.messageId, format: "metadata" },
+      { userId: 'me', id: incomingEmail.messageId, format: 'metadata' },
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     const headers = originalMessage.data.payload?.headers || [];
     const messageIdHeader =
-      headers.find((h) => h.name?.toLowerCase() === "message-id")?.value ||
+      headers.find((h) => h.name?.toLowerCase() === 'message-id')?.value ||
       incomingEmail.messageId;
     const threadId = originalMessage.data.threadId;
     const replyToAddress =
-      headers.find((h) => h.name?.toLowerCase() === "reply-to")?.value ||
+      headers.find((h) => h.name?.toLowerCase() === 'reply-to')?.value ||
       incomingEmail.from;
 
     const mime = [
@@ -452,19 +446,19 @@ export class GoogleSerivce {
       `Subject: ${payload.subject}`,
       `In-Reply-To: ${messageIdHeader}`,
       `References: ${messageIdHeader}`,
-      "Content-Type: text/html; charset=UTF-8",
-      "",
+      'Content-Type: text/html; charset=UTF-8',
+      '',
       payload.replyBody,
-    ].join("\r\n");
+    ].join('\r\n');
     const raw = Buffer.from(mime)
-      .toString("base64")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/g, "");
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
 
     await gmail.users.messages.send(
       {
-        userId: "me",
+        userId: 'me',
         requestBody: {
           raw,
           threadId: threadId || undefined,
@@ -477,68 +471,12 @@ export class GoogleSerivce {
     );
   }
 
-  async getGoogleAuth(connectorId?: string) {
-    const array = new Uint32Array(10);
-    const rand = crypto.getRandomValues(array).toString();
-    // Encode user email in state if provided (for linking credential to existing user)
-    const stateData = {
-      nonce: rand,
-      connectorId: connectorId || null,
-    };
-    const state = Buffer.from(JSON.stringify(stateData), "utf-8").toString(
-      "base64",
-    );
-    const authorizationUrl = this.oauth2Client.generateAuthUrl({
-      access_type: "offline",
-      prompt: "consent",
-      /** Pass in the scopes array defined above.
-       * Alternatively, if only one scope is needed, you can pass a scope URL as a string */
-      scope: this.scopes,
-      // Enable incremental authorization. Recommended as a best practice.
-      include_granted_scopes: true,
-      redirect_uri: `${process.env.API_URL}/gmail/verify`,
-      // Include the state parameter to reduce the risk of CSRF attacks.
-      state: state,
-    });
-    return { url: authorizationUrl };
-  }
-
-  async renewTokenForConnector(connector: Connector) {
-    const oauth2Client = new OAuth2Client(
-      this.configService.get("GOOGLE_CLIENT_ID"),
-      this.configService.get("GOOGLE_CLIENT_SECRET"),
-    );
-    const credential = connector.credentials;
-    const oldTokens = JSON.parse(await decrypt(credential.tokens));
-    oauth2Client.setCredentials({ refresh_token: oldTokens.refresh_token });
-    try {
-      const tokens = await oauth2Client.refreshAccessToken();
-      const newAccessToken = tokens.credentials.access_token;
-      credential.tokens = await encrypt(
-        JSON.stringify({
-          access_token: newAccessToken,
-          refresh_token: oldTokens.refresh_token,
-        }),
-      );
-      credential.expiryDate = tokens.credentials.expiry_date;
-      await this.connectorService.saveConnector(connector);
-      this.logger.log(`Renewed token for connector ${connector.id}`);
-      return credential;
-    } catch (err) {
-      this.logger.error(
-        `Failed to renew token for credential ${credential.inboxEmail}`,
-        err,
-      );
-      return null;
-    }
-  }
-
   async stopWatchForConnector(connector: Connector) {
-    const gmail = await google.gmail("v1");
+    const gmail = await google.gmail('v1');
     const tokens = JSON.parse(await decrypt(connector.credentials.tokens));
     try {
       const res = await gmail.users.stop(
-        { userId: "me" },
+        { userId: 'me' },
         { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
       return res.data;
@@ -550,85 +488,60 @@ export class GoogleSerivce {
     }
   }
 
-  async verifyCode(code: string, state?: string) {
-    let googleUserInfo;
-    let tokens: Credentials;
-    let connectorId: string | null = null;
-
-    // Extract user email from state if provided
-    try {
-      const stateData = JSON.parse(
-        Buffer.from(state, "base64").toString("utf-8"),
-      );
-      connectorId = stateData.connectorId;
-    } catch (error) {
-      this.logger.warn("Failed to parse state parameter");
-    }
-    try {
-      tokens = (await this.oauth2Client.getToken(code)).tokens;
-      const oauth2 = await google.oauth2("v2");
-      googleUserInfo = await oauth2.userinfo.get(
-        {},
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
-      );
-    } catch (error) {
-      this.logger.error("user did not authorize us", error.stack);
-      return { token: null };
-    }
-
-    const inboxEmail = googleUserInfo.data.email;
-    const gmail = await google.gmail("v1");
+  protected async afterTokenVerified(
+    connector: Connector,
+    tokens: Credentials,
+    googleEmail: string | null,
+  ): Promise<void> {
+    const gmail = await google.gmail('v1');
     try {
       await gmail.users.watch(
         {
-          userId: "me",
+          userId: 'me',
           access_token: tokens.access_token,
           requestBody: {
-            topicName: this.configService.get("GOOGLE_QUEUE_TOPIC"),
-            labelIds: ["INBOX"],
-            labelFilterBehavior: "INCLUDE",
+            topicName: this.configService.get('GOOGLE_QUEUE_TOPIC'),
+            labelIds: ['INBOX'],
+            labelFilterBehavior: 'INCLUDE',
           },
         },
         { headers: { Authorization: `Bearer ${tokens.access_token}` } },
       );
-      this.logger.log("watcher done");
+      this.logger.log('watcher done');
     } catch (error) {
-      this.logger.error(`error for ${inboxEmail}`, error);
+      this.logger.error(`error for ${googleEmail}`, error);
     }
+  }
 
-    const connector = await this.connectorService.findOneById(connectorId);
-    if (!connector) {
-      this.logger.warn(`Connector for ${connectorId} not found`);
-      return;
-    }
-    connector.status = ConnectorStatus.ACTIVE;
-
-    connector.credentials = {
-      tokens: await encrypt(
-        JSON.stringify({
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
-        }),
-      ),
-      expiryDate: tokens.expiry_date,
+  protected async credentialsForVerifiedConnector(
+    connector: Connector,
+    tokens: Credentials,
+    refreshToken: string,
+    googleEmail: string | null,
+  ): Promise<Record<string, any>> {
+    return {
+      ...(await super.credentialsForVerifiedConnector(
+        connector,
+        tokens,
+        refreshToken,
+        googleEmail,
+      )),
       watcherDate: new Date().valueOf(),
     };
-    connector.primaryIdentifier = inboxEmail;
-    await this.connectorService.saveConnector(connector);
   }
 
   async renewWatch(connector: Connector) {
     const credential = connector.credentials;
-    const gmail = await google.gmail("v1");
+    const gmail = await google.gmail('v1');
     const tokens = JSON.parse(await decrypt(credential.tokens));
-    if (process.env.NODE_ENV == "production") {
+    if (process.env.NODE_ENV == 'production') {
       await gmail.users.watch(
         {
-          userId: "me",
+          userId: 'me',
           requestBody: {
-            topicName: this.configService.get("GOOGLE_QUEUE_TOPIC"),
-            labelIds: ["INBOX"],
-            labelFilterBehavior: "INCLUDE",
+            topicName: this.configService.get('GOOGLE_QUEUE_TOPIC'),
+            labelIds: ['INBOX'],
+            labelFilterBehavior: 'INCLUDE',
           },
         },
         { headers: { Authorization: `Bearer ${tokens.access_token}` } },
@@ -638,14 +551,9 @@ export class GoogleSerivce {
     await this.connectorService.saveConnector(connector);
   }
 
-  async disconnectConnector(connectorId: string) {
-    // First, get the credential to stop the watch
-    const connector = await this.connectorService.findOneById(connectorId);
-    if (!connector) {
-      throw new Error("Connector not found");
-    }
-
-    // Stop the Gmail watch for this credential
+  protected async beforeDisconnectConnector(
+    connector: Connector,
+  ): Promise<void> {
     try {
       await this.stopWatchForConnector(connector);
       this.logger.log(`Stopped watch for connector ${connector.id}`);
@@ -654,10 +562,7 @@ export class GoogleSerivce {
         `Failed to stop watch for ${connector.id}, continuing with deletion`,
         error,
       );
-      // Continue with deletion even if stopWatch fails
     }
     await this.userService.deleteIncomingEmails(connector.id);
-    await this.connectorService.delete(connector.id);
-    return connector;
   }
 }
