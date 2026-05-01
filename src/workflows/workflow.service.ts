@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { IsNull, Not, Or, Repository } from "typeorm";
+import { FindOptionsWhere, IsNull, Not, Or, Repository } from "typeorm";
 import { Workflow } from "./workflow.entity";
 
 import {
@@ -38,9 +38,16 @@ export class WorkflowService {
     private readonly connectorService: ConnectorService,
   ) {}
 
-  async findAll(user: UserRequest): Promise<Workflow[]> {
+  async findAll(
+    user: UserRequest,
+    query: { workflowType?: string },
+  ): Promise<Workflow[]> {
+    let extraWhere: FindOptionsWhere<Workflow> = {};
+    if (query.workflowType) {
+      extraWhere.workflowType = query.workflowType;
+    }
     const workflows = await this.workflowRepo.find({
-      where: { teamId: user.teamId },
+      where: { teamId: user.teamId, ...extraWhere },
     });
     return workflows;
   }
@@ -114,6 +121,23 @@ export class WorkflowService {
       .innerJoinAndSelect("workflow_run.workflow", "workflow")
       .leftJoin("workflow.linkedConnectors", "connector")
       .andWhere("connector.id = :connectorId", { connectorId })
+      .andWhere(
+        "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
+        { context: JSON.stringify(context) },
+      )
+      .getOne();
+  }
+  async findWorkgetWorkflowRunByContextWorkflowId({
+    workflowId,
+    context,
+  }: {
+    workflowId: string;
+    context: Record<string, any>;
+  }) {
+    return await this.workflowRunRepo
+      .createQueryBuilder("workflow_run")
+      .innerJoinAndSelect("workflow_run.workflow", "workflow")
+      .andWhere("workflow.id = :workflowId", { workflowId })
       .andWhere(
         "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
         { context: JSON.stringify(context) },
@@ -206,8 +230,10 @@ export class WorkflowService {
     return this.workflowRepo.save(workflow);
   }
 
-  async findWorkflowRunByWorkflowId(workflowId: string): Promise<WorkflowRun> {
-    return this.workflowRunRepo.findOne({
+  async findWorkflowRunByWorkflowId(
+    workflowId: string,
+  ): Promise<WorkflowRun[]> {
+    return this.workflowRunRepo.find({
       where: { workflowId },
     });
   }
@@ -383,6 +409,21 @@ export class WorkflowService {
     return this.workflowRepo.save(workflow);
   }
 
+  async findWorkflowByPrimaryIdentifier(
+    primaryIdentifier: string,
+    connectorTypeId: string,
+    workflowName: string,
+  ): Promise<Workflow> {
+    return (
+      await this.workflowRepo.query(
+        `SELECT id, steps FROM workflows inner join workflow_connectors` +
+          ` on workflows.id = workflow_connectors.workflow_id and workflow_connectors.connector_id =` +
+          ` (select id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorTypeId}')` +
+          ` where workflows.workflow_type = '${workflowName}'`,
+      )
+    )?.[0];
+  }
+
   async createWorkflowRunFromPrimaryIdentifier({
     primaryIdentifier,
     workflowName,
@@ -396,14 +437,11 @@ export class WorkflowService {
     displayContext: Record<string, any>;
     injectContext: (workflow: Workflow) => Record<string, any>;
   }): Promise<WorkflowRun> {
-    const workflow = (
-      await this.workflowRepo.query(
-        `SELECT id, steps FROM workflows inner join workflow_connectors` +
-          ` on workflows.id = workflow_connectors.workflow_id and workflow_connectors.connector_id =` +
-          ` (select id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorTypeId}')` +
-          ` where workflows.workflow_type = '${workflowName}'`,
-      )
-    )?.[0];
+    const workflow = await this.findWorkflowByPrimaryIdentifier(
+      primaryIdentifier,
+      connectorTypeId,
+      workflowName,
+    );
     if (!workflow) {
       throw new NotFoundException("Workflow not found");
     }

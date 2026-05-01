@@ -11,7 +11,7 @@ import { CacheService } from "src/cache/cache.service";
 
 const SEARCH_LIST_SELECTOR = 'ul[data-testid="srp-search-list"]';
 const LISTING_LINK_SELECTOR = `${SEARCH_LIST_SELECTOR} a[data-testid="listing-link"]`;
-const LAST_LINK_LIMIT = 20;
+const LAST_LINK_LIMIT = 30;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const PUPPETEER_ARGS = [
   "--no-sandbox",
@@ -21,8 +21,7 @@ const PUPPETEER_ARGS = [
 ];
 
 export interface KijijiLinkTrackingResult {
-  connectorId: string;
-  sourceUrl: string;
+  workflowId: string;
   collectedLinks: string[];
   insertedLinks: string[];
   published: boolean;
@@ -52,111 +51,102 @@ export class KijijiLinkTrackingService {
     }
     const workflows = await this.workflowService.findByConnectorType("kijiji");
     for (const workflow of workflows) {
-      for (const linkedConnector of workflow.linkedConnectors) {
-        const connectorId = linkedConnector.id;
-        const searchStep = workflow.steps.find(
-          (step) => step.name === "search-kijiji",
-        );
-        const kijijiUrl = searchStep?.values.searchLink;
-        await this.trackLink(connectorId, kijijiUrl, {
-          workflowId: workflow.id,
-        });
-      }
+      const searchStep = workflow.steps.find(
+        (step) => step.name === "search-kijiji",
+      );
+      const kijijiUrl = searchStep?.values.searchLink;
+      await this.trackLink(
+        workflow.id,
+
+        kijijiUrl,
+      );
     }
   }
 
   async trackLink(
-    connectorId: string,
+    workflowId: string,
     kijijiUrl: string,
-    notification?: KijijiNotificationOptions,
   ): Promise<KijijiLinkTrackingResult> {
     const isFetching = await this.cacheService.getData(
-      `kijiji-link-tracking:${connectorId}`,
+      `kijiji-link-tracking:${workflowId}`,
     );
     if (isFetching) {
+      // await this.cacheService.evictData(`kijiji-link-tracking:${workflowId}`);
       this.logger.log(
-        `Skipping link tracking for ${connectorId} because it is already being fetched`,
+        `Skipping link tracking for ${workflowId} because it is already being fetched`,
       );
       return;
     }
     await this.cacheService.setData(
-      `kijiji-link-tracking:${connectorId}`,
+      `kijiji-link-tracking:${workflowId}`,
       "true",
       60 * 4,
     );
-    const sourceUrl = this.normalizeUrl(kijijiUrl);
-    const collectedLinks = await this.collectListingLinks(sourceUrl);
+    try {
+      const sourceUrl = this.normalizeUrl(kijijiUrl);
+      const collectedLinks = await this.collectListingLinks(sourceUrl);
 
-    if (collectedLinks.length === 0) {
+      if (collectedLinks.length === 0) {
+        return {
+          workflowId,
+          collectedLinks,
+          insertedLinks: [],
+          published: false,
+        };
+      }
+
+      const knownLinks = await this.kijijiLinkModel
+        .find({ workflowId, link: { $in: collectedLinks } })
+        .select({ link: 1 })
+        .lean();
+      const knownLinkSet = new Set(knownLinks.map(({ link }) => link));
+      const insertedLinks = collectedLinks.filter(
+        (link) => !knownLinkSet.has(link),
+      );
+
+      const now = new Date();
+
+      if (insertedLinks.length > 0) {
+        await this.kijijiLinkModel.insertMany(
+          insertedLinks.map((link) => ({
+            workflowId,
+            link,
+            collectedAt: now,
+            lastSeenAt: now,
+          })),
+          { ordered: false },
+        );
+      }
+
+      const shouldPublish = insertedLinks.length > 0;
+      if (shouldPublish) {
+        this.logger.log(`Publishing new kijiji item for ${workflowId}`);
+        await this.queuePublisher.publish(Events.NEW_KIJIJI_ITEM, {
+          workflowId,
+          links: insertedLinks,
+          collectedAt: now.toISOString(),
+        });
+      }
       return {
-        connectorId,
-        sourceUrl,
+        workflowId,
         collectedLinks,
+        insertedLinks,
+        published: shouldPublish,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to track link for ${workflowId}`, {
+        message: error?.message,
+        stack: error?.stack,
+      });
+      return {
+        workflowId,
+        collectedLinks: [],
         insertedLinks: [],
         published: false,
       };
+    } finally {
+      await this.cacheService.evictData(`kijiji-link-tracking:${workflowId}`);
     }
-
-    const [existingCount, recentLinks] = await Promise.all([
-      this.kijijiLinkModel.countDocuments({ connectorId, sourceUrl }),
-      this.kijijiLinkModel
-        .find({ connectorId, sourceUrl })
-        .sort({ createdAt: -1 })
-        .limit(LAST_LINK_LIMIT)
-        .select({ link: 1 })
-        .lean(),
-    ]);
-
-    const recentLinkSet = new Set(recentLinks.map(({ link }) => link));
-    const linksMissingFromRecent = collectedLinks.filter(
-      (link) => !recentLinkSet.has(link),
-    );
-
-    const knownLinks = await this.kijijiLinkModel
-      .find({ connectorId, sourceUrl, link: { $in: linksMissingFromRecent } })
-      .select({ link: 1 })
-      .lean();
-    const knownLinkSet = new Set(knownLinks.map(({ link }) => link));
-    const insertedLinks = linksMissingFromRecent.filter(
-      (link) => !knownLinkSet.has(link),
-    );
-
-    const now = new Date();
-    await this.kijijiLinkModel.updateMany(
-      { connectorId, sourceUrl, link: { $in: collectedLinks } },
-      { $set: { lastSeenAt: now } },
-    );
-    console.log("insertedLinks", insertedLinks.length);
-    if (insertedLinks.length > 0) {
-      await this.kijijiLinkModel.insertMany(
-        insertedLinks.map((link) => ({
-          connectorId,
-          sourceUrl,
-          link,
-          collectedAt: now,
-          lastSeenAt: now,
-        })),
-        { ordered: false },
-      );
-    }
-
-    const shouldPublish = existingCount > 0 && insertedLinks.length > 0;
-    if (shouldPublish) {
-      console.log("publishing new kijiji item", insertedLinks);
-      await this.queuePublisher.publish(Events.NEW_KIJIJI_ITEM, {
-        workflowId: notification?.workflowId,
-        links: insertedLinks,
-        collectedAt: now.toISOString(),
-      });
-    }
-    await this.cacheService.evictData(`kijiji-link-tracking:${connectorId}`);
-    return {
-      connectorId,
-      sourceUrl,
-      collectedLinks,
-      insertedLinks,
-      published: shouldPublish,
-    };
   }
 
   private async collectListingLinks(sourceUrl: string): Promise<string[]> {

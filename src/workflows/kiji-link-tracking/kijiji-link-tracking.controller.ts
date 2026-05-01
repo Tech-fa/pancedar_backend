@@ -28,10 +28,10 @@ export class KijijiLinkTrackingController {
     private readonly kijijiLinkNotificationHandler: KijijiLinkNotificationHandler,
   ) {}
 
-  @Get(":connectorId/links")
+  @Get(":workflowId/links")
   @hasPermission({ subject: kijijiLinksPermission.subject, actions: ["read"] })
-  async findByConnectorId(
-    @Param("connectorId") connectorId: string,
+  async findByWorkflowId(
+    @Param("workflowId") workflowId: string,
     @Query("limit") limit: string,
     @Res() res: Response,
   ) {
@@ -39,12 +39,12 @@ export class KijijiLinkTrackingController {
 
     return formatResponse(
       this.logger,
-      this.kijijiLinkService.findByConnectorId(
-        connectorId,
+      this.kijijiLinkService.findByWorkflowId( 
+        workflowId,
         Number.isFinite(parsedLimit) ? parsedLimit : undefined,
       ),
       res,
-      `Kijiji links fetched for connector ${connectorId}`,
+      `Kijiji links fetched for workflow ${workflowId}`,
     );
   }
 

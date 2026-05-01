@@ -16,11 +16,11 @@ export class KijijiLinkService {
     private readonly kijijiLinkModel: Model<KijijiLinkDocument>,
   ) {}
 
-  async findByConnectorId(connectorId: string, limit = DEFAULT_LINK_LIMIT) {
+  async findByWorkflowId(workflowId: string, limit = DEFAULT_LINK_LIMIT) {
     const safeLimit = Math.min(Math.max(limit, 1), MAX_LINK_LIMIT);
 
     return this.kijijiLinkModel
-      .find({ connectorId })
+      .find({ workflowId })
       .sort({ createdAt: -1 })
       .limit(safeLimit)
       .select({

@@ -10,10 +10,7 @@ export type KijijiLinkDocument = HydratedDocument<KijijiLink>;
 })
 export class KijijiLink {
   @Prop({ required: true, index: true, trim: true })
-  connectorId: string;
-
-  @Prop({ required: true, index: true, trim: true })
-  sourceUrl: string;
+  workflowId: string;
 
   @Prop({ required: true, trim: true })
   link: string;
@@ -27,8 +24,5 @@ export class KijijiLink {
 
 export const KijijiLinkSchema = SchemaFactory.createForClass(KijijiLink);
 
-KijijiLinkSchema.index(
-  { connectorId: 1, sourceUrl: 1, link: 1 },
-  { unique: true },
-);
-KijijiLinkSchema.index({ connectorId: 1, createdAt: -1 });
+KijijiLinkSchema.index({ workflowId: 1, link: 1 }, { unique: true });
+KijijiLinkSchema.index({ workflowId: 1, createdAt: -1 });

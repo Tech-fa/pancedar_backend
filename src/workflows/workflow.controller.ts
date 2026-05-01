@@ -57,10 +57,10 @@ export class WorkflowController {
 
   @Get()
   @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
-  async findAll(@Req() req, @Res() res: Response) {
+  async findAll(@Req() req, @Res() res: Response, @Query() query: { workflowType?: string }) {
     return formatResponse(
       this.logger,
-      this.workflowService.findAll(req.user),
+      this.workflowService.findAll(req.user, query),
       res,
       "Workflows fetched successfully",
     );

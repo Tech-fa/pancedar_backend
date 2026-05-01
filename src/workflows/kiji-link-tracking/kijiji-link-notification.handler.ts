@@ -25,6 +25,7 @@ export class KijijiLinkNotificationHandler {
   @RabbitSubscribe(getListening(Events.NEW_KIJIJI_ITEM))
   @Public()
   async handleNewKijijiItem(payload: NewKijijiItemPayload): Promise<void> {
+    console.log("payload", payload);
     try {
       if (!payload?.workflowId) {
         this.logger.warn(
@@ -38,18 +39,23 @@ export class KijijiLinkNotificationHandler {
         );
         return;
       }
-      const workflowRun = await this.workflowService.findWorkflowRunByWorkflowId(
+      const workflowRuns = await this.workflowService.findWorkflowRunByWorkflowId(
         payload.workflowId,
       );
-      this.logger.log("sending message to chatId", workflowRun.context?.chatId);
-      if (workflowRun.context.chatId) {
-        await sendMessage(
-          workflowRun.context.chatId,
-          this.formatMessage(payload),
-          {
-            botToken: process.env.TELEGRAM_BOT_TOKEN,
-          },
+      for (const workflowRun of workflowRuns) {
+        this.logger.log(
+          "sending message to chatId",
+          workflowRun.context?.chatId,
         );
+        if (workflowRun.context.chatId) {
+          await sendMessage(
+            workflowRun.context.chatId,
+            this.formatMessage(payload),
+            {
+              botToken: process.env.TELEGRAM_BOT_TOKEN,
+            },
+          );
+        }
       }
     } catch (error) {
       this.logger.error("Failed to send Kijiji Telegram notification", {
@@ -62,20 +68,39 @@ export class KijijiLinkNotificationHandler {
   async handleWebhook(body: TelegramWebhookUpdateDto): Promise<void> {
     const message = extractMessage(body);
     const username = message?.from?.username;
-    const workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
+
+    const workflow = await this.workflowService.findWorkflowByPrimaryIdentifier(
+      username,
+      "kijiji",
+      "kijiji-notifier",
+    );
+    let workflowRun = await this.workflowService.findWorkgetWorkflowRunByContextWorkflowId(
       {
-        primaryIdentifier: username,
-        workflowName: "kijiji-notifier",
-        connectorTypeId: "kijiji",
-        injectContext: (workflow: Workflow) => {
-          return {
-            chatId: message?.chat?.id,
-          };
+        workflowId: workflow.id,
+        context: {
+          chatId: message?.chat?.id,
+          username: username,
+          primaryIdentifier: username,
         },
-        displayContext: {},
       },
     );
-    console.log("workflowRun", workflowRun);
+    if (!workflowRun) {
+      workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
+        {
+          primaryIdentifier: username,
+          workflowName: "kijiji-notifier",
+          connectorTypeId: "kijiji",
+          injectContext: (workflow: Workflow) => {
+            return {
+              chatId: message?.chat?.id,
+              username: username,
+            };
+          },
+          displayContext: {},
+        },
+      );
+    }
+    this.logger.log("workflowRun found or created ", workflowRun.id);
   }
 
   private formatMessage(payload: NewKijijiItemPayload): string {
