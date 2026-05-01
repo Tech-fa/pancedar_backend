@@ -41,6 +41,7 @@ export class KijijiLinkNotificationHandler {
       const workflowRun = await this.workflowService.findWorkflowRunByWorkflowId(
         payload.workflowId,
       );
+      this.logger.log("sending message to chatId", workflowRun.context?.chatId);
       if (workflowRun.context.chatId) {
         await sendMessage(
           workflowRun.context.chatId,
