@@ -74,12 +74,14 @@ export class WorkflowService {
         }[];
       }[];
       connectorsNeeded: string[];
+      allowMultiple: boolean;
     }[]
   > {
     return Object.entries(workflowConfigs).map(([name, config]) => ({
       name,
       description: config.description,
       connectorsNeeded: config.connectorsNeeded || [],
+      allowMultiple: "allowMultiple" in config ? config.allowMultiple : false,
       steps: (config.steps || []).map((stepName) => ({
         name: stepName,
         description: workflowStepConfigs[stepName]?.description,

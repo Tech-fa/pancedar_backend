@@ -41,6 +41,7 @@ export const workflowConfigs = {
       "Kijiji notifier that notifies you when new items are posted on Kijiji.",
     steps: ["search-kijiji", "notify"],
     connectorsNeeded: ["Kijiji"],
+    allowMultiple: true,
     entitiesNeeded: ["kijiji_links"],
   },
 };

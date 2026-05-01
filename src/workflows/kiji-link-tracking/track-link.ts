@@ -52,14 +52,16 @@ export class KijijiLinkTrackingService {
     }
     const workflows = await this.workflowService.findByConnectorType("kijiji");
     for (const workflow of workflows) {
-      const connectorId = workflow.linkedConnectors[0].id;
-      const searchStep = workflow.steps.find(
-        (step) => step.name === "search-kijiji",
-      );
-      const kijijiUrl = searchStep?.values.searchLink;
-      await this.trackLink(connectorId, kijijiUrl, {
-        workflowId: workflow.id,
-      });
+      for (const linkedConnector of workflow.linkedConnectors) {
+        const connectorId = linkedConnector.id;
+        const searchStep = workflow.steps.find(
+          (step) => step.name === "search-kijiji",
+        );
+        const kijijiUrl = searchStep?.values.searchLink;
+        await this.trackLink(connectorId, kijijiUrl, {
+          workflowId: workflow.id,
+        });
+      }
     }
   }
 
@@ -94,7 +96,7 @@ export class KijijiLinkTrackingService {
         published: false,
       };
     }
-    
+
     const [existingCount, recentLinks] = await Promise.all([
       this.kijijiLinkModel.countDocuments({ connectorId, sourceUrl }),
       this.kijijiLinkModel
