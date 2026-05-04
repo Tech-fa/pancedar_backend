@@ -1,4 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { ChildProcess } from "child_process";
+import { Injectable, Logger, OnApplicationShutdown } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { Model } from "mongoose";
@@ -11,8 +12,9 @@ import { CacheService } from "src/cache/cache.service";
 
 const SEARCH_LIST_SELECTOR = 'ul[data-testid="srp-search-list"]';
 const LISTING_LINK_SELECTOR = `${SEARCH_LIST_SELECTOR} a[data-testid="listing-link"]`;
-const LAST_LINK_LIMIT = 30;
 const NAVIGATION_TIMEOUT_MS = 30_000;
+const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
+const BROWSER_KILL_GRACE_MS = 2_000;
 const PUPPETEER_ARGS = [
   "--no-sandbox",
   "--disable-setuid-sandbox",
@@ -27,13 +29,12 @@ export interface KijijiLinkTrackingResult {
   published: boolean;
 }
 
-interface KijijiNotificationOptions {
-  workflowId?: string;
-}
 
 @Injectable()
-export class KijijiLinkTrackingService {
+export class KijijiLinkTrackingService implements OnApplicationShutdown {
   private readonly logger = new Logger(KijijiLinkTrackingService.name);
+  private readonly activeBrowsers = new Set<Browser>();
+  private readonly activeBrowserProcesses = new Set<ChildProcess>();
 
   constructor(
     @InjectModel(KijijiLink.name)
@@ -63,6 +64,10 @@ export class KijijiLinkTrackingService {
     }
   }
 
+  async onApplicationShutdown(): Promise<void> {
+    await this.closeActiveBrowsers();
+  }
+
   async trackLink(
     workflowId: string,
     kijijiUrl: string,
@@ -85,7 +90,6 @@ export class KijijiLinkTrackingService {
     try {
       const sourceUrl = this.normalizeUrl(kijijiUrl);
       const collectedLinks = await this.collectListingLinks(sourceUrl);
-
       if (collectedLinks.length === 0) {
         return {
           workflowId,
@@ -160,6 +164,7 @@ export class KijijiLinkTrackingService {
           ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
           : {}),
       });
+      this.trackBrowser(browser);
 
       const page = await browser.newPage();
       await page.setUserAgent(
@@ -190,8 +195,80 @@ export class KijijiLinkTrackingService {
       });
       return [];
     } finally {
-      await browser?.close();
+      await this.closeBrowser(browser);
     }
+  }
+
+  private trackBrowser(browser: Browser): void {
+    this.activeBrowsers.add(browser);
+
+    const browserProcess = browser.process();
+    if (!browserProcess) {
+      return;
+    }
+
+    this.activeBrowserProcesses.add(browserProcess);
+    browserProcess.once("exit", () => {
+      this.activeBrowserProcesses.delete(browserProcess);
+    });
+  }
+
+  private async closeBrowser(browser: Browser | null): Promise<void> {
+    if (!browser) {
+      return;
+    }
+
+    const browserProcess = browser.process();
+    try {
+      await Promise.race([
+        browser.close(),
+        this.delay(BROWSER_CLOSE_TIMEOUT_MS).then(() => {
+          throw new Error("Timed out closing Kijiji browser session");
+        }),
+      ]);
+    } catch (error) {
+      this.logger.warn("Failed to close Kijiji browser gracefully", {
+        message: error?.message,
+      });
+    } finally {
+      this.activeBrowsers.delete(browser);
+      await this.killBrowserProcess(browserProcess);
+    }
+  }
+
+  private async closeActiveBrowsers(): Promise<void> {
+    await Promise.all(
+      Array.from(this.activeBrowsers).map((browser) =>
+        this.closeBrowser(browser),
+      ),
+    );
+
+    await Promise.all(
+      Array.from(this.activeBrowserProcesses).map((browserProcess) =>
+        this.killBrowserProcess(browserProcess),
+      ),
+    );
+  }
+
+  private async killBrowserProcess(
+    browserProcess: ChildProcess | null,
+  ): Promise<void> {
+    if (!browserProcess || browserProcess.exitCode !== null) {
+      return;
+    }
+
+    browserProcess.kill("SIGTERM");
+    await this.delay(BROWSER_KILL_GRACE_MS);
+
+    if (browserProcess.exitCode === null) {
+      browserProcess.kill("SIGKILL");
+    }
+
+    this.activeBrowserProcesses.delete(browserProcess);
+  }
+
+  private delay(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
   private normalizeUrl(url: string, baseUrl?: string): string {

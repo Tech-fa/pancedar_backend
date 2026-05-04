@@ -4,7 +4,6 @@ import { QueueModule } from "../../queue/queue.module";
 import { KijijiLink, KijijiLinkSchema } from "./schemas/kijiji-link.schema";
 import { KijijiLinkTrackingController } from "./kijiji-link-tracking.controller";
 import { KijijiLinkService } from "./kijiji-link.service";
-import { KijijiLinkTrackingService } from "./track-link";
 import { WorkflowModule } from "../workflow.module";
 import { CachingModule } from "src/cache/cache.module";
 import { TelegramModule } from "src/connector/telegram/telegram.module";
@@ -24,10 +23,9 @@ import { registerWebhook } from "src/connector/telegram/telegram-util";
   controllers: [KijijiLinkTrackingController],
   providers: [
     KijijiLinkService,
-    KijijiLinkTrackingService,
     KijijiLinkNotificationHandler,
   ],
-  exports: [KijijiLinkService, KijijiLinkTrackingService],
+  exports: [KijijiLinkService],
 })
 export class KijijiLinkTrackingModule implements OnModuleInit {
   constructor() {}

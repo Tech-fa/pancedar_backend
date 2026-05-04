@@ -20,6 +20,8 @@ type TurnPlan = {
   availableInformation?: Record<string, string>;
   actionName?: string;
   actionId?: string;
+  order?: string;
+  orderConfirmed?: boolean;
 };
 interface TurnParams {
   sendFullToken: (token: string) => void;
@@ -68,7 +70,7 @@ type LlmAgentOptions = {
   mission?: string;
   availableActions?: { [key: string]: { requiredInformation: string[] } };
   source: string;
-  teamId:string
+  teamId: string;
   skipPartialToken?: boolean;
   initialState?: LlmAgentState;
   onStateChange?: (state: LlmAgentState) => void | Promise<void>;
@@ -239,7 +241,6 @@ export class LlmAgent {
         description: agentActions[action].description,
       };
     }
-    console.log(this.availableActions);
     this.source = options.source;
     this.skipPartialToken = options.skipPartialToken ?? false;
     if (Object.keys(options.initialState ?? {}).length) {
@@ -560,6 +561,13 @@ export class LlmAgent {
             );
             return;
           }
+        }
+        if (plan.orderConfirmed) {
+          this.queuePublisher.publish(Events.ORDER_CONFIRMED, {
+            order: plan.order,
+            workflowRunId: this.source,
+          });
+
         }
       }
       return;

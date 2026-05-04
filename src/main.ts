@@ -46,6 +46,7 @@ async function bootstrap() {
     }),
     cors: true,
   });
+  app.enableShutdownHooks();
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
