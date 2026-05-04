@@ -63,7 +63,7 @@ export class CategoryService {
       files: dto.files,
       links: dto.links,
       textResource: dto.textResource,
-      categoryId: saved.id,
+      categoryId  : saved.id,
     });
     await this.resourceRepo.save(resource);
     this.ingestResourcesInBackground(user.teamId, resource);

@@ -88,6 +88,7 @@ async function createLogin() {
       user: adminUser,
       permissionGroup: adminPermissionGroup,
       teamId: defaultTeam.id,
+
     });
     await userPermissionRepository.save(userPermissionGroup);
     console.log("Permission groups created and admin assigned.");

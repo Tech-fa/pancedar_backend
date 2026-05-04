@@ -21,7 +21,6 @@ export const assertValidWebhookRequest = (req: Request): void => {
   }
 
   const receivedSecret = req.get("X-Telegram-Bot-Api-Secret-Token");
-  console.log("receivedSecret", receivedSecret);
   if (
     !receivedSecret ||
     !secureCompare(receivedSecret, expectedSecret.trim())
