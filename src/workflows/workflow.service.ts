@@ -238,6 +238,17 @@ export class WorkflowService {
     });
   }
 
+  async findPendingWorkflowRunsByWorkflowType(
+    workflowType: string,
+  ): Promise<WorkflowRun[]> {
+    return this.workflowRunRepo
+      .createQueryBuilder("run")
+      .innerJoinAndSelect("run.workflow", "workflow")
+      .where("run.status = :status", { status: WorkflowRunStatus.PENDING })
+      .andWhere("workflow.workflowType = :workflowType", { workflowType })
+      .getMany();
+  }
+
   async findOne(user: UserRequest, id: string): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
       where: { id, teamId: user.teamId },
@@ -412,30 +423,30 @@ export class WorkflowService {
   async findWorkflowByPrimaryIdentifier(
     primaryIdentifier: string,
     connectorTypeId: string,
-    workflowName: string,
+    workflowName?: string,
   ): Promise<Workflow> {
     return (
       await this.workflowRepo.query(
         `SELECT id, steps FROM workflows inner join workflow_connectors` +
           ` on workflows.id = workflow_connectors.workflow_id and workflow_connectors.connector_id =` +
           ` (select id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorTypeId}')` +
-          ` where workflows.workflow_type = '${workflowName}'`,
+          ` ${workflowName ? `where workflows.workflow_type = '${workflowName}'` : ""}`,
       )
     )?.[0];
   }
 
   async createWorkflowRunFromPrimaryIdentifier({
     primaryIdentifier,
-    workflowName,
     connectorTypeId,
     displayContext,
     injectContext,
+    workflowName,
   }: {
     primaryIdentifier: string;
-    workflowName: string;
     connectorTypeId: string;
     displayContext: Record<string, any>;
     injectContext: (workflow: Workflow) => Record<string, any>;
+    workflowName?: string;
   }): Promise<WorkflowRun> {
     const workflow = await this.findWorkflowByPrimaryIdentifier(
       primaryIdentifier,

@@ -6,6 +6,7 @@ import { WorkflowService } from "src/workflows/workflow.service";
 import * as tClient from "twilio";
 import { CacheService } from "src/cache/cache.service";
 import { Workflow } from "src/workflows/workflow.entity";
+import { TeamService } from "src/team/team.service";
 
 export const TWILIO_MEDIA_PATH = "/connector/twilio/media";
 export const TWILIO_CACHE_PREFIX = "twilio_voice";
@@ -17,11 +18,19 @@ export class TwilioVoiceService {
     private readonly config: ConfigService,
     private readonly workflowService: WorkflowService,
     private readonly cacheService: CacheService,
+    private readonly teamService: TeamService,
   ) {
     this.client = tClient(
       this.config.get("TWILIO_ACCOUNT_SID"),
       this.config.get("TWILIO_AUTH_TOKEN"),
     );
+  }
+
+  async buildDisabledTwiML(): Promise<string> {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+            <Reject reason="busy" />
+            </Response>`;
   }
 
   isVoiceEnabled(): boolean {
@@ -122,10 +131,9 @@ export class TwilioVoiceService {
     const u = new URL(base.trim());
     let greetingMessage = "Hello, how can I help you today?";
     if (calledE164?.trim()) {
-      const workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
-        {
+      const [workflowRun, teamConfig] = await Promise.all([
+        this.workflowService.createWorkflowRunFromPrimaryIdentifier({
           primaryIdentifier: calledE164.trim(),
-          workflowName: "voice-assistant",
           connectorTypeId: "twilio",
           injectContext: (workflow: Workflow) => ({
             greetingMessage: workflow.steps.find(
@@ -138,30 +146,32 @@ export class TwilioVoiceService {
               (step) => step.name === "Answer Calls",
             )?.allowedActions,
             teamId: workflow.teamId,
+            agentType:
+              workflow.workflowType === "voice-assistant"
+                ? "voice-assistant"
+                : "phone-ordering-assistant",
           }),
           displayContext: {
             from: fromNumber,
           },
-        },
-      );
-      this.cacheService.setData(
+        }),
+        this.teamService.getConfigFromConnectorPrimaryIdentifier(
+          calledE164.trim(),
+          "twilio",
+          "chatBot",
+        ),
+      ]);
+      u.searchParams.set("runId", workflowRun.id);
+      const context = { ...workflowRun.context, ...teamConfig.llmAgent };
+      await this.cacheService.setData(
         `${TWILIO_CACHE_PREFIX}_${workflowRun.id}`,
-        JSON.stringify(workflowRun.context),
+        JSON.stringify(context),
         3600 * 24,
       );
-      u.searchParams.set("runId", workflowRun.id);
       greetingMessage = workflowRun.context.greetingMessage;
     }
     return [u.toString(), greetingMessage];
   }
-
-  buildDisabledTwiML(): string {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Reject reason="busy" />
-</Response>`;
-  }
-
   private escapeXml(s: string): string {
     return s
       .replace(/&/g, "&amp;")

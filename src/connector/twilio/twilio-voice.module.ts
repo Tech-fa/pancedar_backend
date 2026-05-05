@@ -5,9 +5,10 @@ import { TwilioVoiceService } from "./twilio-voice.service";
 import { TwilioMediaGateway } from "./twilio-media.gateway";
 import { WorkflowModule } from "src/workflows/workflow.module";
 import { RagModule } from "../../rag/rag.module";
-import { CachingModule } from "src/cache/cache.module";
-import { QueueModule } from "src/queue/queue.module";
-import { ServiceMappingModule } from "src/service-mapping/service-mapping.module";
+import { CachingModule } from "../../cache/cache.module";
+import { QueueModule } from "../../queue/queue.module"; 
+import { ServiceMappingModule } from "../../service-mapping/service-mapping.module";
+import { TeamModule } from "../../team/team.module";
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ServiceMappingModule } from "src/service-mapping/service-mapping.module
     CachingModule,
     QueueModule,
     ServiceMappingModule,
+    TeamModule,
   ],
   controllers: [TwilioVoiceController],
   providers: [TwilioVoiceService, TwilioMediaGateway],

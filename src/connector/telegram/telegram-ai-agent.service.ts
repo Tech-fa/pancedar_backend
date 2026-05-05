@@ -22,6 +22,9 @@ import {
   registerWebhook,
   sendMessage as sendTelegramMessage,
 } from "./telegram-util";
+import { TeamService } from "src/team/team.service";
+import { BaseLlmAgent } from "src/llm-integration/llm-agent-base";
+import { OrderLlmAgent } from "src/llm-integration/order-llm-agent";
 
 export const TELEGRAM_CACHE_PREFIX = "telegram-ai-agent";
 
@@ -35,6 +38,7 @@ export class TelegramService {
     private readonly cacheService: CacheService,
     private readonly connectorService: ConnectorService,
     private readonly ragRetrievalService: RagRetrievalService,
+    private readonly teamService: TeamService,
     private readonly queuePublisher: QueuePublisher,
     @Inject(SERVICE_MAP)
     private readonly serviceMap: Record<
@@ -78,44 +82,76 @@ export class TelegramService {
       } else {
         startedAt = initialState.startedAt;
       }
-      const run = await this.workflowService.createOrGetWorkflowRun({
-        connectorId,
-        context: {
-          chatId,
-          userId: message.from?.username,
-          startedAt,
-        },
-        displayContext: {
-          userId: message.from?.username,
-          startedAt,
-        },
-      });
-      const agent = new LlmAgent(
-        this.config,
-        this.ragRetrievalService,
-        this.queuePublisher,
-        this.serviceMap,
-        {
-          source: run.id,
-          teamId: run.workflow?.teamId,
-          skipPartialToken: true,
-          mission: run.workflow?.steps.find(
-            (step) => step.name === "Reply to Message",
-          )?.values.assistantMission,
-          availableActions: run.workflow?.steps.find(
-            (step) => step.name === "Reply to Message",
-          )?.allowedActions,
-          onStateChange: (state: LlmAgentState) => {
-            this.cacheService.setData(
-              cacheKey,
-              JSON.stringify({ ...state, startedAt }),
-              3600 * 2,
-            );
+      const [run, teamConfig] = await Promise.all([
+        this.workflowService.createOrGetWorkflowRun({
+          connectorId,
+          context: {
+            chatId,
+            userId: message.from?.username,
+            startedAt,
           },
-          initialState,
+          displayContext: {
+            userId: message.from?.username,
+            startedAt,
+          },
+        }),
+        this.teamService.getConfigFromConnectorPrimaryIdentifier(
+          message.from?.username,
+          "Telegram AI Agent",
+          "chatBot",
+        ),
+      ]);
+      let llmAgent: BaseLlmAgent;
+      const baseLlmAgentConfig = {
+        source: run.id,
+        llmConfig: {
+          apiUrl: teamConfig?.llmAgent?.apiUrl,
+          apiKey: teamConfig?.llmAgent?.apiKey,
+          model: teamConfig?.llmAgent?.model,
         },
-      );
-      agent.handleTurn(
+        skipPartialToken: true,
+        mission: run.workflow?.steps.find(
+          (step) => step.name === "Reply to Message",
+        )?.values.assistantMission,
+        onStateChange: (state: any) => {
+          this.cacheService.setData(
+            cacheKey,
+            JSON.stringify({ ...state, startedAt }),
+            3600 * 2,
+          );
+        },
+        initialState,
+      };
+      if (run?.workflow?.workflowType === "telegram-assistant") {
+        llmAgent = new LlmAgent(
+          this.ragRetrievalService,
+          this.queuePublisher,
+          this.serviceMap,
+          {
+            ...baseLlmAgentConfig,
+            availableActions: run.workflow?.steps.find(
+              (step) => step.name === "Reply to Message",
+            )?.allowedActions,
+          },
+        );
+      } else if (
+        run?.workflow?.workflowType === "telegram-phone-ordering-assistant"
+      ) {
+        llmAgent = new OrderLlmAgent(
+          this.ragRetrievalService,
+          this.queuePublisher,
+          {
+            ...baseLlmAgentConfig,
+          },
+        );
+      } else {
+        this.logger.error("No supported agent configured for runId", {
+          runId: run.id,
+        });
+        return;
+      }
+
+      llmAgent.handleTurn(
         {
           sendFullToken: (token: string) => {
             if (token.trim()) {

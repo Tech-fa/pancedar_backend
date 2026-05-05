@@ -59,3 +59,30 @@ export class TeamMember {
   @Column({ name: "created_at", type: "bigint" })
   createdAt: number;
 }
+
+@Entity("team_configs")
+@Index(["teamId"], { unique: true })
+export class TeamConfig {
+  constructor(data: Partial<TeamConfig> = {}) {
+    Object.assign(this, data);
+  }
+
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @ManyToOne(() => Team, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "team_id" })
+  team: Team;
+
+  @Column({ name: "team_id", type: "varchar", length: 36 })
+  teamId: string;
+
+  @Column({ name: "config", type: "json" })
+  config: { [key: string]: any };
+
+  @Column({ name: "created_at", type: "bigint" })
+  createdAt: number;
+
+  @Column({ name: "updated_at", type: "bigint" })
+  updatedAt: number;
+}

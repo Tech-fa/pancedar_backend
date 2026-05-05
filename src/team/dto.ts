@@ -4,6 +4,7 @@ import {
   IsArray,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -26,6 +27,18 @@ export class UpdateTeamDto {
   @IsNotEmpty()
   @MaxLength(255)
   name?: string;
+}
+
+export class CreateTeamConfigDto {
+  @IsObject()
+  @IsNotEmpty()
+  config: { [key: string]: any };
+}
+
+export class UpdateTeamConfigDto {
+  @IsObject()
+  @IsNotEmpty()
+  config: { [key: string]: any };
 }
 
 export class ListTeamsDto extends PaginationDto {

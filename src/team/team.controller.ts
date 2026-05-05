@@ -18,10 +18,12 @@ import { hasPermission } from "../authentication/permission.decorator";
 import { teamPermission } from "../permissions/permissions";
 import {
   AddTeamMemberDto,
+  CreateTeamConfigDto,
   CreateTeamDto,
   ListTeamsDto,
   SetUserAsAdminDto,
   SetUserTeamsDto,
+  UpdateTeamConfigDto,
   UpdateTeamDto,
 } from "./dto";
 
@@ -53,6 +55,17 @@ export class TeamController {
     );
   }
 
+  @Get(":id/config")
+  @hasPermission({ subject: teamPermission.subject, actions: ["read"] })
+  async getConfig(@Res() res: Response, @Param("id") id: string, @Req() req) {
+    return formatResponse(
+      this.logger,
+      this.teamService.getConfig(id, req.user),
+      res,
+      "Team config fetched successfully",
+    );
+  }
+
   @Post()
   @hasPermission({ subject: teamPermission.subject, actions: ["create"] })
   async create(@Res() res: Response, @Body() dto: CreateTeamDto) {
@@ -61,6 +74,22 @@ export class TeamController {
       this.teamService.create(dto),
       res,
       "Team created successfully",
+    );
+  }
+
+  @Post(":id/config")
+  @hasPermission({ subject: teamPermission.subject, actions: ["update"] })
+  async createConfig(
+    @Res() res: Response,
+    @Param("id") id: string,
+    @Body() dto: CreateTeamConfigDto,
+    @Req() req,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.teamService.createConfig(id, dto, req.user),
+      res,
+      "Team config created successfully",
     );
   }
 
@@ -79,6 +108,22 @@ export class TeamController {
     );
   }
 
+  @Put(":id/config")
+  @hasPermission({ subject: teamPermission.subject, actions: ["update"] })
+  async updateConfig(
+    @Res() res: Response,
+    @Param("id") id: string,
+    @Body() dto: UpdateTeamConfigDto,
+    @Req() req,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.teamService.updateConfig(id, dto, req.user),
+      res,
+      "Team config updated successfully",
+    );
+  }
+
   @Delete(":id")
   @hasPermission({ subject: teamPermission.subject, actions: ["delete"] })
   async remove(@Req() req, @Res() res: Response, @Param("id") id: string) {
@@ -87,6 +132,17 @@ export class TeamController {
       this.teamService.delete(id),
       res,
       "Team deleted successfully",
+    );
+  }
+
+  @Delete(":id/config")
+  @hasPermission({ subject: teamPermission.subject, actions: ["update"] })
+  async removeConfig(@Req() req, @Res() res: Response, @Param("id") id: string) {
+    return formatResponse(
+      this.logger,
+      this.teamService.deleteConfig(id, req.user),
+      res,
+      "Team config deleted successfully",
     );
   }
 

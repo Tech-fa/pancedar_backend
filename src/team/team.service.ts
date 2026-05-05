@@ -5,17 +5,29 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
-import { Team, TeamMember } from "./team.entity";
+import { Team, TeamConfig, TeamMember } from "./team.entity";
 import {
   AddTeamMemberDto,
+  CreateTeamConfigDto,
   CreateTeamDto,
   ListTeamsDto,
   SetUserTeamsDto,
+  UpdateTeamConfigDto,
   UpdateTeamDto,
 } from "./dto";
 import { PaginatedResponse } from "../common/pagination.dto";
 import { UserRequest } from "../permissions/dto";
 import { PermissionService } from "../permissions/permission.service";
+import { decrypt, encrypt, getByPath } from "../util/helper-util";
+import { teamConfig as baseTeamConfig } from "./team-config";
+
+export interface TeamConfigResponse {
+  id?: string;
+  teamId: string;
+  config: { [key: string]: any };
+  createdAt: number;
+  updatedAt: number;
+}
 
 @Injectable()
 export class TeamService {
@@ -24,9 +36,145 @@ export class TeamService {
     private readonly teamRepository: Repository<Team>,
     @InjectRepository(TeamMember)
     private readonly teamMemberRepository: Repository<TeamMember>,
+    @InjectRepository(TeamConfig)
+    private readonly teamConfigRepository: Repository<TeamConfig>,
 
     private readonly permissionService: PermissionService,
   ) {}
+
+  private isSecretPlaceholder(value: unknown): value is string {
+    return typeof value === "string" && /^@@[^@]+@@$/.test(value);
+  }
+
+  private async mergeConfigSecrets(
+    template: any,
+    submittedConfig: any,
+    path: string[] = [],
+  ): Promise<any> {
+    if (this.isSecretPlaceholder(template)) {
+      if (typeof submittedConfig !== "string" || !submittedConfig.trim()) {
+        throw new BadRequestException(
+          `Missing secret value for ${path.join(".")}`,
+        );
+      }
+
+      return await encrypt(submittedConfig);
+    }
+
+    if (template && typeof template === "object") {
+      const acc: { [key: string]: any } = {};
+      for (const [key, value] of Object.entries(template)) {
+        acc[key] = await this.mergeConfigSecrets(
+          value,
+          submittedConfig?.[key],
+          [...path, key],
+        );
+      }
+      return acc;
+    }
+
+    return template;
+  }
+
+  private async buildEncryptedTeamConfig(submittedConfig: {
+    [key: string]: any;
+  }): Promise<{ [key: string]: string }> {
+    const mergedConfig = await this.mergeConfigSecrets(
+      baseTeamConfig,
+      submittedConfig,
+    );
+
+    return mergedConfig;
+  }
+
+  private maskConfigSecrets(template: any): any {
+    if (this.isSecretPlaceholder(template)) {
+      return "********";
+    }
+
+    if (Array.isArray(template)) {
+      return template.map((value) => this.maskConfigSecrets(value));
+    }
+
+    if (template && typeof template === "object") {
+      return Object.entries(template).reduce(
+        (acc: { [key: string]: any }, [key, value]) => {
+          acc[key] = this.maskConfigSecrets(value);
+          return acc;
+        },
+        {},
+      );
+    }
+
+    return template;
+  }
+
+  private maskTeamConfigForClient(config: { [key: string]: any }) {
+    const templateConfig = baseTeamConfig as { [key: string]: any };
+    return Object.keys(config || {}).reduce(
+      (acc: { [key: string]: any }, key) => {
+        acc[key] = this.maskConfigSecrets(templateConfig[key]);
+        return acc;
+      },
+      {},
+    );
+  }
+  private async decryptTeamConfig(
+    config: { [key: string]: any },
+    key: string,
+    path = "",
+  ) {
+    const destinationConfig = config[key];
+    const keyPath = path ? `${path}.${key}` : key;
+    const templateConfig = getByPath(baseTeamConfig, keyPath);
+    console.log(destinationConfig);
+    console.log(templateConfig);
+    console.log(keyPath);
+    if (
+      typeof destinationConfig === "string" &&
+      this.isSecretPlaceholder(templateConfig)
+    ) {
+      return await decrypt(destinationConfig);
+    } else if (typeof destinationConfig === "object") {
+      for (const key in destinationConfig) {
+        destinationConfig[key] = await this.decryptTeamConfig(
+          destinationConfig,
+          key,
+          keyPath,
+        );
+      }
+    }
+    return destinationConfig;
+  }
+
+  private toTeamConfigResponse(config: TeamConfig): TeamConfigResponse {
+    return {
+      id: config.id,
+      teamId: config.teamId,
+      config: this.maskTeamConfigForClient(config.config),
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt,
+    };
+  }
+
+  private toTeamConfigTemplateResponse(teamId: string): TeamConfigResponse {
+    return {
+      teamId,
+      config: this.maskConfigSecrets(baseTeamConfig),
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  }
+
+  private async assertTeamAccess(
+    teamId: string,
+    user: UserRequest,
+  ): Promise<void> {
+    const teamIds = await this.getTeamIdsForUser(user);
+    if (!teamIds.includes(teamId)) {
+      throw new NotFoundException("Team not found");
+    }
+  }
 
   async getTeamIdsForUser(user: UserRequest): Promise<string[]> {
     return (
@@ -146,6 +294,104 @@ export class TeamService {
     }
 
     return team;
+  }
+
+  async getConfigFromConnectorPrimaryIdentifier(
+    primaryIdentifier: string,
+    connectorType: string,
+    configName: string,
+  ): Promise<{ [key: string]: any }> {
+    const teamId = (
+      await this.teamRepository.query(
+        `select  team_id as id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorType}'`,
+      )
+    )[0].id;
+    const config = await this.teamConfigRepository.findOne({
+      where: { teamId },
+    });
+    const conf = await this.decryptTeamConfig(config.config, configName);
+    return conf;
+  }
+
+  async getConfig(
+    teamId: string,
+    user: UserRequest,
+  ): Promise<TeamConfigResponse> {
+    await this.assertTeamAccess(teamId, user);
+
+    const config = await this.teamConfigRepository.findOne({
+      where: { teamId },
+    });
+    if (!config) {
+      return this.toTeamConfigTemplateResponse(teamId);
+    }
+
+    return this.toTeamConfigResponse(config);
+  }
+
+  async createConfig(
+    teamId: string,
+    dto: CreateTeamConfigDto,
+    user: UserRequest,
+  ): Promise<TeamConfigResponse> {
+    await this.assertTeamAccess(teamId, user);
+
+    const existing = await this.teamConfigRepository.findOne({
+      where: { teamId },
+    });
+    if (existing) {
+      throw new BadRequestException("Team config already exists");
+    }
+
+    const now = Date.now();
+    const config = this.teamConfigRepository.create({
+      teamId,
+      config: await this.buildEncryptedTeamConfig(dto.config),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return this.toTeamConfigResponse(
+      await this.teamConfigRepository.save(config),
+    );
+  }
+
+  async updateConfig(
+    teamId: string,
+    dto: UpdateTeamConfigDto,
+    user: UserRequest,
+  ): Promise<TeamConfigResponse> {
+    await this.assertTeamAccess(teamId, user);
+
+    const config = await this.teamConfigRepository.findOne({
+      where: { teamId },
+    });
+    if (!config) {
+      throw new NotFoundException("Team config not found");
+    }
+
+    config.config = await this.buildEncryptedTeamConfig(dto.config);
+    config.updatedAt = Date.now();
+    return this.toTeamConfigResponse(
+      await this.teamConfigRepository.save(config),
+    );
+  }
+
+  async deleteConfig(
+    teamId: string,
+    user: UserRequest,
+  ): Promise<{ teamId: string }> {
+    await this.assertTeamAccess(teamId, user);
+
+    const config = await this.teamConfigRepository.findOne({
+      where: { teamId },
+    });
+    if (!config) {
+      throw new NotFoundException("Team config not found");
+    }
+
+    await this.teamConfigRepository.remove(config);
+    return { teamId };
   }
 
   async create(dto: CreateTeamDto): Promise<Team> {

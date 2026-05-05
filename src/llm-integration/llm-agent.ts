@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { agentActions } from "../workflows/workflow-config";
 import { QueuePublisher } from "../queue/queue.publisher";
 import { Events } from "../queue/queue-constants";
+import { BaseLlmAgent, TurnParams } from "./llm-agent-base";
 
 type ActionType =
   | "LOOKUP_KB"
@@ -23,13 +24,6 @@ type TurnPlan = {
   order?: string;
   orderConfirmed?: boolean;
 };
-interface TurnParams {
-  sendFullToken: (token: string) => void;
-  sendPartialToken: (token: string) => void;
-  sendEmptyToken: () => void;
-  endConversation: () => void;
-}
-
 type ActionState = "idle" | "asking_for_information" | "performing_action";
 
 type PendingExternalAction = {
@@ -70,13 +64,17 @@ type LlmAgentOptions = {
   mission?: string;
   availableActions?: { [key: string]: { requiredInformation: string[] } };
   source: string;
-  teamId: string;
+  llmConfig: {
+    apiUrl: string;
+    apiKey: string;
+    model: string;
+  };
   skipPartialToken?: boolean;
   initialState?: LlmAgentState;
   onStateChange?: (state: LlmAgentState) => void | Promise<void>;
 };
 
-export class LlmAgent {
+export class LlmAgent extends BaseLlmAgent {
   private readonly history: ChatMessage[] = [];
   private readonly logger: Logger = new Logger(LlmAgent.name);
   private extraContext: string = "";
@@ -95,6 +93,11 @@ export class LlmAgent {
   private previousAction: ActionType = "NONE";
   private onStateChange?: (state: LlmAgentState) => void | Promise<void>;
   private mission: string;
+  private llmConfig: {
+    apiUrl: string;
+    apiKey: string;
+    model: string;
+  };
   private main_prompt = (
     turnMessages: ChatMessage[],
     turnInstructions: string = "",
@@ -224,12 +227,15 @@ export class LlmAgent {
     ${this.availableActions}
     `;
   constructor(
-    private readonly config: ConfigService,
     private readonly ragRetrievalService: RagRetrievalService,
     private readonly queuePublisher: QueuePublisher,
     private readonly serviceMap: Record<string, any>,
-    options: LlmAgentOptions = { source: "default", teamId: "" },
+    options: LlmAgentOptions = {
+      source: "default",
+      llmConfig: { apiUrl: "", apiKey: "", model: "" },
+    },
   ) {
+    super();
     this.initialContext = options.initialContext ?? "None";
     this.mission = options.mission ?? "None";
     this.availableActions = {};
@@ -247,9 +253,8 @@ export class LlmAgent {
       this.loadState(options.initialState);
     }
     this.onStateChange = options.onStateChange;
+    this.llmConfig = options.llmConfig;
   }
-
-  public currentAbort: AbortController | null = null;
 
   public saveState(): LlmAgentState {
     const state: LlmAgentState = {
@@ -408,22 +413,6 @@ export class LlmAgent {
     return this.createActionInstance(actionName);
   }
 
-  async handleTurn(params: TurnParams, userText: string): Promise<void> {
-    const abort = new AbortController();
-    this.currentAbort = abort;
-    const signal = abort.signal;
-
-    try {
-      await this.runTurn(params, userText, signal);
-    } finally {
-      // Only clear the shared ref if it still points at us. A newer turn
-      // may have already installed its own controller.
-      if (this.currentAbort === abort) {
-        this.currentAbort = null;
-      }
-    }
-  }
-
   private pushHistory(message: ChatMessage): void {
     this.setState({ history: [...this.history, message] });
     this.queuePublisher?.publish?.(Events.RECORD_COMMUNICATION, {
@@ -433,7 +422,7 @@ export class LlmAgent {
     });
   }
 
-  private async runTurn(
+  protected async runTurn(
     params: TurnParams,
     userText: string,
     signal: AbortSignal,
@@ -567,7 +556,6 @@ export class LlmAgent {
             order: plan.order,
             workflowRunId: this.source,
           });
-
         }
       }
       return;
@@ -812,11 +800,9 @@ export class LlmAgent {
 
     try {
       for await (const tok of streamLLM({
-        apiUrl: this.config.get<string>("LLM_API_URL") as string,
-        apiKey: this.config.get<string>("LLM_API_KEY") as string,
-        model:
-          this.config.get<string>("LLM_FAST_MODEL") ??
-          (this.config.get<string>("LLM_MODEL") as string),
+        apiUrl: this.llmConfig.apiUrl,
+        apiKey: this.llmConfig.apiKey,
+        model: this.llmConfig.model,
         temperature: 0,
         maxTokens: PLANNER_MAX_TOKENS,
         messages: planningMessages,

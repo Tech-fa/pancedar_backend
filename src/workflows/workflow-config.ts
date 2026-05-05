@@ -44,6 +44,13 @@ export const workflowConfigs = {
     allowMultiple: true,
     entitiesNeeded: ["kijiji_links"],
   },
+  "phone-ordering-assistant": {
+    description:
+      "Phone ordering assistant that orders products or services over the phone.",
+    steps: ["Answer Calls"],
+    connectorsNeeded: ["Twilio"],
+    entitiesNeeded: ["agent_communications"],
+  },
 };
 
 export const workflowStepConfigs = {
@@ -64,6 +71,12 @@ export const workflowStepConfigs = {
         name: "assistantMission",
         type: "textarea",
         required: true,
+      },
+      {
+        label: "Initial context",
+        name: "initialContext",
+        type: "textarea",
+        required: false,
       },
     ],
     availableActions: [],

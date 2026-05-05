@@ -32,6 +32,7 @@
     "migration:mongo-indexes": "ts-node ./src/sync-mongo-indexes.ts",
     "migration:mongo-indexes:dist": "node ./dist/sync-mongo-indexes.js",
     "test:llm-agent": "ts-node -r tsconfig-paths/register ./src/llm-integration/llm-agent-test.ts",
+    "test:twilio-voice-flow": "ts-node ./scripts/twilio-voice-flow-test.ts",
     "ts:migration:run": "npm run typeorm migration:run -- -d ./src/db/psql.ts",
     "ts:migration:run:dist": "node ./node_modules/typeorm/cli.js migration:run -d ./dist/db/psql.js",
     "ts:migration:generate": "npm run typeorm migration:generate  -- -d ./src/db/psql.ts  ./src/migrations/$NAME",

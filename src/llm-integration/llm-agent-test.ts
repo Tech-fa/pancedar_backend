@@ -32,14 +32,13 @@ async function main(): Promise<void> {
   }
 
   const costRepository = dataSource.getRepository(Cost);
-  const costService = new CostService(costRepository);
   const embeddingService = new EmbeddingService();
   const chunkRepository = psqlDataSource.getRepository(ResourceChunk);
   const ragRetrievalService = new RagRetrievalService(
     chunkRepository,
     embeddingService,
   );
-  const agent = new LlmAgent(config, ragRetrievalService, null, {
+  const agent = new LlmAgent(ragRetrievalService, null, {
     source: "test",
   });
   let shouldExit = false;

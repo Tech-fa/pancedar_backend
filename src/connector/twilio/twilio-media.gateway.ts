@@ -15,6 +15,8 @@ import { TWILIO_CACHE_PREFIX } from "./twilio-voice.service";
 import { QueuePublisher } from "src/queue/queue.publisher";
 import { Events } from "src/queue/queue-constants";
 import { SERVICE_MAP } from "src/service-mapping/service.map";
+import { OrderLlmAgent } from "src/llm-integration/order-llm-agent";
+import { BaseLlmAgent } from "src/llm-integration/llm-agent-base";
 
 type TwilioWs = WebSocket;
 
@@ -33,7 +35,6 @@ export class TwilioMediaGateway
   private readonly logger = new Logger(TwilioMediaGateway.name);
 
   constructor(
-    private readonly config: ConfigService,
     private readonly ragRetrievalService: RagRetrievalService,
     private readonly cacheService: CacheService,
     private readonly queuePublisher: QueuePublisher,
@@ -64,23 +65,49 @@ export class TwilioMediaGateway
       client.close();
       return;
     }
-    const llmAgent = new LlmAgent(
-      this.config,
-      this.ragRetrievalService,
-      this.queuePublisher,
-      this.serviceMap,
-      {
-        mission: context?.assistantMission,
-        availableActions: context?.allowedActions,
-        source: runId,
-        teamId: context?.teamId,
-      },
-    );
+
+    let llmAgent: BaseLlmAgent;
+    if (context?.agentType === "voice-assistant") {
+      llmAgent = new LlmAgent(
+        this.ragRetrievalService,
+        this.queuePublisher,
+        this.serviceMap,
+        {
+          mission: context?.assistantMission,
+          availableActions: context?.allowedActions,
+          source: runId,
+          llmConfig: {
+            apiUrl: context?.apiUrl,
+            apiKey: context?.apiKey,
+            model: context?.model,
+          },
+        },
+      );
+    } else if (context?.agentType === "phone-ordering-assistant") {
+      console.log("context", context);
+      llmAgent = new OrderLlmAgent(
+        this.ragRetrievalService,
+        this.queuePublisher,
+        {
+          mission: context?.assistantMission,
+          source: runId,
+          llmConfig: {
+            apiUrl: context?.apiUrl,
+            apiKey: context?.apiKey,
+            model: context?.model,
+          },
+        },
+      );
+    } else {
+      this.logger.error("No supported agent configured for runId", { runId });
+      client.close();
+      return;
+    }
     client["agent"] = llmAgent;
     client["runId"] = runId;
     client.on("message", (data: RawData) =>
       this.onMessage(
-        client as WebSocket & { agent: LlmAgent; runId: string | null },
+        client as WebSocket & { agent: BaseLlmAgent; runId: string | null },
         data,
       ),
     );
@@ -114,7 +141,7 @@ export class TwilioMediaGateway
   }
 
   private async onMessage(
-    client: WebSocket & { agent: LlmAgent; runId: string | null },
+    client: WebSocket & { agent: BaseLlmAgent; runId: string | null },
     data: RawData,
   ): Promise<void> {
     let msg;

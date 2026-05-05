@@ -34,6 +34,19 @@ export const formatResponse = async (
     return;
   }
 };
+export function getByPath<T = unknown>(
+  obj: unknown,
+  path: string,
+  defaultValue?: T,
+): T | undefined {
+  if (!path) return (obj as T) ?? defaultValue;
+  const result = path.split(".").reduce<unknown>((acc, key) => {
+    if (acc === null || acc === undefined) return undefined;
+    if (typeof acc !== "object") return undefined;
+    return (acc as Record<string, unknown>)[key];
+  }, obj);
+  return (result as T) ?? defaultValue;
+}
 function checkForForbiddenAttributes(data: any) {
   function removePassword(obj: any) {
     if (!obj || typeof obj !== "object") return;
