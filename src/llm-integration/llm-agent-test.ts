@@ -43,8 +43,6 @@ async function main(): Promise<void> {
   });
   let shouldExit = false;
 
-  console.log("Interactive LLM agent test");
-  console.log("Type a message and press Enter. Type /exit to quit.\n");
 
   try {
     while (!shouldExit) {

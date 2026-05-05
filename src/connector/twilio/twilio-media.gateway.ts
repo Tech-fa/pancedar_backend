@@ -84,7 +84,6 @@ export class TwilioMediaGateway
         },
       );
     } else if (context?.agentType === "phone-ordering-assistant") {
-      console.log("context", context);
       llmAgent = new OrderLlmAgent(
         this.ragRetrievalService,
         this.queuePublisher,
@@ -158,7 +157,6 @@ export class TwilioMediaGateway
 
       case "prompt": {
         const incomingText = String(msg.voicePrompt ?? "");
-        console.log("incomingText", incomingText);
         client.agent
           .handleTurn(
             {

@@ -25,7 +25,6 @@ export class KijijiLinkNotificationHandler {
   @RabbitSubscribe(getListening(Events.NEW_KIJIJI_ITEM))
   @Public()
   async handleNewKijijiItem(payload: NewKijijiItemPayload): Promise<void> {
-    console.log("payload", payload);
     try {
       if (!payload?.workflowId) {
         this.logger.warn(

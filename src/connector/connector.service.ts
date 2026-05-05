@@ -64,7 +64,6 @@ export class ConnectorService {
     const primaryIdentifier = typeConfig.fields?.find(
       (f) => f.isPrimaryIdentifier,
     )?.name;
-    console.log(credentials);
     const config = this.findTypeByName(connectorTypeName);
     for (const key in credentials) {
       if (config?.fields?.find((f) => f.name === key)?.secret) {

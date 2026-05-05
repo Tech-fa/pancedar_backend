@@ -127,9 +127,6 @@ export class TeamService {
     const destinationConfig = config[key];
     const keyPath = path ? `${path}.${key}` : key;
     const templateConfig = getByPath(baseTeamConfig, keyPath);
-    console.log(destinationConfig);
-    console.log(templateConfig);
-    console.log(keyPath);
     if (
       typeof destinationConfig === "string" &&
       this.isSecretPlaceholder(templateConfig)

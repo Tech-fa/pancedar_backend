@@ -25,7 +25,6 @@ export class TelegramQueueHandler {
         );
         return;
       }
-      console.log("payload", payload);
       const connector = await this.connectorService.findOneById(
         payload.connectorId,
       );

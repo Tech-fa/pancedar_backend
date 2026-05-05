@@ -194,6 +194,13 @@ export const emailWorkflowCategoryPermission = {
   base_route: "email-categories",
   workflow_specific: true,
 };
+export const chatWidgetPermission = {
+  subject: "chat_widgets",
+  label: "Chat Widget",
+  actions: actions,
+  service_tag: "chat_widgets",
+  base_route: "chat-widgets",
+};
 export const incomingEmailsPermission = {
   subject: "incoming_emails",
   label: "Incoming Email",
@@ -242,7 +249,8 @@ export const permissions: {
   costPermission,
   agentCommunicationPermission,
   googleAccountsPermission,
-  kijijiLinksPermission
+  kijijiLinksPermission,
+  chatWidgetPermission,
 };
 
 export const permissionTree: {
@@ -259,6 +267,7 @@ export const permissionTree: {
   costPermission,
   agentCommunicationPermission,
   googleAccountsPermission,
+  chatWidgetPermission,
 };
 
 export const defaultPermissionGroups = [

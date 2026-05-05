@@ -32,7 +32,6 @@ export class KijijiLinkTrackingModule implements OnModuleInit {
 
   onModuleInit() {
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_WEBHOOK_PATH && process.env.ENABLE_TELEGRAM_WEBHOOK == "true") {
-      console.log("registering webhook");
       registerWebhook(
         process.env.TELEGRAM_BOT_TOKEN,
        `${process.env.API_URL}/${process.env.TELEGRAM_WEBHOOK_PATH}`,

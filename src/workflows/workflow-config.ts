@@ -51,11 +51,35 @@ export const workflowConfigs = {
     connectorsNeeded: ["Twilio"],
     entitiesNeeded: ["agent_communications"],
   },
+  "tech-fa-chat-business-assistant": {
+    description:
+      "Tech FA chat business assistant that replies to chat messages based on the context of the message and the available resources of your set categories",
+    steps: ["Establish Connection"],
+    connectorsNeeded: ["Chat Widget"],
+    entitiesNeeded: ["chat_messages"],
+  },
 };
 
 export const workflowStepConfigs = {
   "Categorize Email": {
     description: "Categorize email into topics.",
+  },
+  "Establish Connection": {
+    description: "Establish a connection with the user.",
+    fields: [
+      {
+        label: "Assistant Mission",
+        name: "assistantMission",
+        type: "textarea",
+        required: true,
+      },
+      {
+        label: "Greeting message",
+        name: "greetingMessage",
+        type: "text",
+        required: false,
+      },
+    ],
   },
   "Answer Calls": {
     description: "Answer calls with a response.",

@@ -87,6 +87,52 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
     multiLink: false,
   },
   {
+    name: "Chat Widget",
+    serviceName: "chatWidget",
+    description:
+      "Chat widget to be placed in a web page to allow users to chat with the assistant.",
+    fields: [
+      {
+        name: "Web App Name",
+        type: "text",
+        required: true,
+        isPrimaryIdentifier: true,
+      },
+      {
+        name: "Web App Secret",
+        type: "text",
+        required: true,
+        secret: true,
+      },
+      {
+        name: "Chat Widget Color",
+        type: "color",
+        required: false,
+      },
+      {
+        name: "Assistant Icon",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "Assistant Name",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "Chat Icon",
+        type: "textarea",
+        required: false,
+      },
+      {
+        name: "Hide Circle",
+        type: "boolean",
+        required: false,
+      },
+    ],
+    multiLink: false,
+  },
+  {
     name: "Telegram AI Agent",
     serviceName: "telegram",
     description:
@@ -111,8 +157,7 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
   {
     name: "Kijiji",
     serviceName: "kijiji",
-    description:
-      "Kijiji search connector for searching for items on Kijiji.",
+    description: "Kijiji search connector for searching for items on Kijiji.",
     fields: [
       {
         name: "Telegram Username",
@@ -120,7 +165,6 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
         required: true,
         isPrimaryIdentifier: true,
       },
-   
     ],
     multiLink: false,
   },

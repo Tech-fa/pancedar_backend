@@ -33,6 +33,7 @@ import { GoogleBusinessReviewsModule } from './connector/google-business-reviews
 import { WhatsAppModule } from './connector/whatsapp/whatsapp.module';
 import { GoogleAccountsModule } from './google-accounts/google-accounts.module';
 import { KijijiLinkTrackingModule } from './workflows/kiji-link-tracking/kijiji-link-tracking.module';
+import { ChatWidgetModule } from './connector/chat-widget/chat-widget.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -83,6 +84,7 @@ import { KijijiLinkTrackingModule } from './workflows/kiji-link-tracking/kijiji-
     AgentCommunicationModule,
     GoogleAccountsModule,
     KijijiLinkTrackingModule,
+    ChatWidgetModule,
   ],
   controllers: [AppController],
   providers: [
