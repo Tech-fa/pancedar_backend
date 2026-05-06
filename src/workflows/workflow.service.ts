@@ -3,28 +3,28 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-} from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { FindOptionsWhere, IsNull, Not, Or, Repository } from "typeorm";
-import { Workflow } from "./workflow.entity";
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { FindOptionsWhere, In, IsNull, Not, Or, Repository } from 'typeorm';
+import { Workflow } from './workflow.entity';
 
 import {
   CreateWorkflowDto,
   FindWorkflowRunsQueryDto,
   UpdateWorkflowStepsDto,
   WorkflowRunStatus,
-} from "./dto";
-import { UserRequest } from "../permissions/dto";
+} from './dto';
+import { UserRequest } from '../permissions/dto';
 import {
   agentActions,
   workflowConfigs,
   workflowStepConfigs,
-} from "./workflow-config";
-import { Events } from "../queue/queue-constants";
-import { WorkflowRun } from "./workflow-run.entity";
-import { ConnectorService } from "../connector/connector.service";
-import { PaginatedResponse } from "../common/pagination.dto";
-import { ConnectorStatus } from "src/connector/dto";
+} from './workflow-config';
+import { Events } from '../queue/queue-constants';
+import { WorkflowRun } from './workflow-run.entity';
+import { ConnectorService } from '../connector/connector.service';
+import { PaginatedResponse } from '../common/pagination.dto';
+import { ConnectorStatus } from 'src/connector/dto';
 
 @Injectable()
 export class WorkflowService {
@@ -58,10 +58,42 @@ export class WorkflowService {
     });
   }
 
-  async findByConnectorType(connectorType: string): Promise<Workflow[]> {
+  async findByIdForTeam(id: string, teamId: string): Promise<Workflow> {
+    const workflow = await this.workflowRepo.findOne({
+      where: { id, teamId },
+    });
+    if (!workflow) {
+      throw new NotFoundException('Workflow not found');
+    }
+    return workflow;
+  }
+
+  async findByConnectorType(
+    connectorType: string,
+    teamId?: string,
+  ): Promise<Workflow[]> {
     return await this.workflowRepo.find({
-      where: { linkedConnectors: { connectorTypeId: connectorType } },
-      relations: ["linkedConnectors"],
+      where: {
+        linkedConnectors: { connectorTypeId: connectorType },
+        ...(teamId ? { teamId } : {}),
+      },
+      relations: ['linkedConnectors'],
+    });
+  }
+
+  async findByWorkflowTypesForTeam(
+    workflowTypes: string[],
+    teamId: string,
+  ): Promise<Workflow[]> {
+    if (workflowTypes.length === 0) {
+      return [];
+    }
+
+    return this.workflowRepo.find({
+      where: {
+        workflowType: In(workflowTypes),
+        teamId,
+      },
     });
   }
 
@@ -88,7 +120,7 @@ export class WorkflowService {
       name,
       description: config.description,
       connectorsNeeded: config.connectorsNeeded || [],
-      allowMultiple: "allowMultiple" in config ? config.allowMultiple : false,
+      allowMultiple: 'allowMultiple' in config ? config.allowMultiple : false,
       steps: (config.steps || []).map((stepName) => ({
         name: stepName,
         description: workflowStepConfigs[stepName]?.description,
@@ -117,12 +149,12 @@ export class WorkflowService {
     context: Record<string, any>;
   }): Promise<WorkflowRun> {
     return await this.workflowRunRepo
-      .createQueryBuilder("workflow_run")
-      .innerJoinAndSelect("workflow_run.workflow", "workflow")
-      .leftJoin("workflow.linkedConnectors", "connector")
-      .andWhere("connector.id = :connectorId", { connectorId })
+      .createQueryBuilder('workflow_run')
+      .innerJoinAndSelect('workflow_run.workflow', 'workflow')
+      .leftJoin('workflow.linkedConnectors', 'connector')
+      .andWhere('connector.id = :connectorId', { connectorId })
       .andWhere(
-        "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
+        'JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)',
         { context: JSON.stringify(context) },
       )
       .getOne();
@@ -135,11 +167,11 @@ export class WorkflowService {
     context: Record<string, any>;
   }) {
     return await this.workflowRunRepo
-      .createQueryBuilder("workflow_run")
-      .innerJoinAndSelect("workflow_run.workflow", "workflow")
-      .andWhere("workflow.id = :workflowId", { workflowId })
+      .createQueryBuilder('workflow_run')
+      .innerJoinAndSelect('workflow_run.workflow', 'workflow')
+      .andWhere('workflow.id = :workflowId', { workflowId })
       .andWhere(
-        "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
+        'JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)',
         { context: JSON.stringify(context) },
       )
       .getOne();
@@ -164,7 +196,7 @@ export class WorkflowService {
         where: { linkedConnectors: { id: connectorId } },
       });
       if (!workflow) {
-        throw new NotFoundException("Workflow not set up for this connector");
+        throw new NotFoundException('Workflow not set up for this connector');
       }
       workflowRun = this.workflowRunRepo.create({
         workflowId: workflow.id,
@@ -214,14 +246,14 @@ export class WorkflowService {
 
   async create(user: UserRequest, dto: CreateWorkflowDto): Promise<Workflow> {
     if (!Object.keys(workflowConfigs).includes(dto.workflowType)) {
-      throw new BadRequestException("Workflow name is not valid");
+      throw new BadRequestException('Workflow name is not valid');
     }
     const config = workflowConfigs[dto.workflowType];
     const workflow = this.workflowRepo.create({
       name: dto.name,
       workflowType: dto.workflowType,
       description: dto.description ?? config.description,
-      triggerQueue: config.triggerQueue || "N/A",
+      triggerQueue: config.triggerQueue || 'N/A',
       steps: dto.steps,
       teamId: user.teamId,
       createdAt: Date.now(),
@@ -242,20 +274,20 @@ export class WorkflowService {
     workflowType: string,
   ): Promise<WorkflowRun[]> {
     return this.workflowRunRepo
-      .createQueryBuilder("run")
-      .innerJoinAndSelect("run.workflow", "workflow")
-      .where("run.status = :status", { status: WorkflowRunStatus.PENDING })
-      .andWhere("workflow.workflowType = :workflowType", { workflowType })
+      .createQueryBuilder('run')
+      .innerJoinAndSelect('run.workflow', 'workflow')
+      .where('run.status = :status', { status: WorkflowRunStatus.PENDING })
+      .andWhere('workflow.workflowType = :workflowType', { workflowType })
       .getMany();
   }
 
   async findOne(user: UserRequest, id: string): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
       where: { id, teamId: user.teamId },
-      relations: ["linkedConnectors"],
+      relations: ['linkedConnectors'],
     });
     if (!workflow) {
-      throw new NotFoundException("Workflow not found");
+      throw new NotFoundException('Workflow not found');
     }
     return workflow;
   }
@@ -269,28 +301,28 @@ export class WorkflowService {
     const perPage = Math.max(1, Math.min(filters.perPage ?? 10, 100));
 
     const query = this.workflowRunRepo
-      .createQueryBuilder("run")
-      .innerJoinAndSelect("run.workflow", "workflow")
-      .where("run.workflowId = :workflowId", { workflowId })
-      .andWhere("workflow.teamId = :teamId", { teamId: user.teamId });
+      .createQueryBuilder('run')
+      .innerJoinAndSelect('run.workflow', 'workflow')
+      .where('run.workflowId = :workflowId', { workflowId })
+      .andWhere('workflow.teamId = :teamId', { teamId: user.teamId });
     if (filters.onlyShowAwaitingActions) {
-      query.andWhere("run.status = :awaitingAction", {
+      query.andWhere('run.status = :awaitingAction', {
         awaitingAction: WorkflowRunStatus.AWAITING_ACTION,
       });
     } else {
       if (filters.hideCompleted) {
-        query.andWhere("run.status != :completed", {
+        query.andWhere('run.status != :completed', {
           completed: WorkflowRunStatus.COMPLETED,
         });
       }
       if (filters.hideSkipped) {
-        query.andWhere("run.status != :skipped", {
+        query.andWhere('run.status != :skipped', {
           skipped: WorkflowRunStatus.SKIPPED,
         });
       }
     }
 
-    query.orderBy("run.createdAt", "DESC");
+    query.orderBy('run.createdAt', 'DESC');
 
     const [data, totalCount] = await query
       .skip((page - 1) * perPage)
@@ -315,15 +347,15 @@ export class WorkflowService {
     const perPage = Math.max(1, Math.min(filters.perPage ?? 10, 100));
 
     const query = this.workflowRunRepo
-      .createQueryBuilder("run")
-      .leftJoin("run.workflow", "workflow")
-      .andWhere("workflow.teamId = :teamId", { teamId: user.teamId })
-      .andWhere("run.status IN (:...statuses)", { statuses });
+      .createQueryBuilder('run')
+      .leftJoin('run.workflow', 'workflow')
+      .andWhere('workflow.teamId = :teamId', { teamId: user.teamId })
+      .andWhere('run.status IN (:...statuses)', { statuses });
 
     if (workflowId) {
-      query.andWhere("run.workflowId = :workflowId", { workflowId });
+      query.andWhere('run.workflowId = :workflowId', { workflowId });
     }
-    query.orderBy("run.createdAt", "DESC");
+    query.orderBy('run.createdAt', 'DESC');
 
     const [data, totalCount] = await query
       .skip((page - 1) * perPage)
@@ -345,15 +377,15 @@ export class WorkflowService {
   ): Promise<Workflow> {
     const workflow = await this.workflowRepo.findOne({
       where: { id, teamId: user.teamId },
-      relations: ["linkedConnectors"],
+      relations: ['linkedConnectors'],
     });
     if (!workflow) {
-      throw new NotFoundException("Workflow not found");
+      throw new NotFoundException('Workflow not found');
     }
 
     const config = workflowConfigs[workflow.workflowType];
     if (!config) {
-      throw new BadRequestException("Workflow configuration is not valid");
+      throw new BadRequestException('Workflow configuration is not valid');
     }
 
     if (dto.steps !== undefined) {
@@ -375,7 +407,7 @@ export class WorkflowService {
             throw new BadRequestException(
               `Step "${
                 step.name
-              }" contains invalid actions: ${invalidActions.join(", ")}`,
+              }" contains invalid actions: ${invalidActions.join(', ')}`,
             );
           }
         }
@@ -396,7 +428,7 @@ export class WorkflowService {
       );
 
       if (connectors.length !== uniqueIds.length) {
-        throw new BadRequestException("One or more connectors are not valid");
+        throw new BadRequestException('One or more connectors are not valid');
       }
 
       for (const connector of connectors) {
@@ -430,7 +462,11 @@ export class WorkflowService {
         `SELECT id, steps FROM workflows inner join workflow_connectors` +
           ` on workflows.id = workflow_connectors.workflow_id and workflow_connectors.connector_id =` +
           ` (select id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorTypeId}')` +
-          ` ${workflowName ? `where workflows.workflow_type = '${workflowName}'` : ""}`,
+          ` ${
+            workflowName
+              ? `where workflows.workflow_type = '${workflowName}'`
+              : ''
+          }`,
       )
     )?.[0];
   }
@@ -454,7 +490,7 @@ export class WorkflowService {
       workflowName,
     );
     if (!workflow) {
-      throw new NotFoundException("Workflow not found");
+      throw new NotFoundException('Workflow not found');
     }
     return await this.workflowRunRepo.save(
       new WorkflowRun({
@@ -482,10 +518,10 @@ export class WorkflowService {
     // so MySQL often fails to match existing rows. Compare using the same JSON string as persist.
     const contextJson = JSON.stringify(context);
     const existingRun = await this.workflowRunRepo
-      .createQueryBuilder("run")
-      .leftJoinAndSelect("run.workflow", "workflow")
-      .where("run.workflowId = :workflowId", { workflowId })
-      .andWhere("run.context = CAST(:contextJson AS JSON)", { contextJson })
+      .createQueryBuilder('run')
+      .leftJoinAndSelect('run.workflow', 'workflow')
+      .where('run.workflowId = :workflowId', { workflowId })
+      .andWhere('run.context = CAST(:contextJson AS JSON)', { contextJson })
       .getOne();
 
     if (existingRun) {
@@ -511,7 +547,7 @@ export class WorkflowService {
   async findWorkflowRunById(runId: string): Promise<WorkflowRun> {
     return this.workflowRunRepo.findOne({
       where: { id: runId },
-      relations: ["workflow"],
+      relations: ['workflow'],
     });
   }
 

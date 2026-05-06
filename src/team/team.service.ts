@@ -49,16 +49,11 @@ export class TeamService {
   private async mergeConfigSecrets(
     template: any,
     submittedConfig: any,
+    existingConfig: any,
     path: string[] = [],
   ): Promise<any> {
     if (this.isSecretPlaceholder(template)) {
-      if (typeof submittedConfig !== "string" || !submittedConfig.trim()) {
-        throw new BadRequestException(
-          `Missing secret value for ${path.join(".")}`,
-        );
-      }
-
-      return await encrypt(submittedConfig);
+      return !submittedConfig ? existingConfig : await encrypt(submittedConfig);
     }
 
     if (template && typeof template === "object") {
@@ -67,6 +62,7 @@ export class TeamService {
         acc[key] = await this.mergeConfigSecrets(
           value,
           submittedConfig?.[key],
+          existingConfig?.[key],
           [...path, key],
         );
       }
@@ -76,12 +72,16 @@ export class TeamService {
     return template;
   }
 
-  private async buildEncryptedTeamConfig(submittedConfig: {
-    [key: string]: any;
-  }): Promise<{ [key: string]: string }> {
+  private async buildEncryptedTeamConfig(
+    submittedConfig: {
+      [key: string]: any;
+    },
+    existingConfig: { [key: string]: any },
+  ): Promise<{ [key: string]: string }> {
     const mergedConfig = await this.mergeConfigSecrets(
       baseTeamConfig,
       submittedConfig,
+      existingConfig,
     );
 
     return mergedConfig;
@@ -109,15 +109,13 @@ export class TeamService {
     return template;
   }
 
-  private maskTeamConfigForClient(config: { [key: string]: any }) {
+  private maskTeamConfigForClient() {
     const templateConfig = baseTeamConfig as { [key: string]: any };
-    return Object.keys(config || {}).reduce(
-      (acc: { [key: string]: any }, key) => {
-        acc[key] = this.maskConfigSecrets(templateConfig[key]);
-        return acc;
-      },
-      {},
-    );
+    const destinationConfig = {};
+    for (const key in templateConfig) {
+      destinationConfig[key] = this.maskConfigSecrets(templateConfig[key]);
+    }
+    return destinationConfig;
   }
   private async decryptTeamConfig(
     config: { [key: string]: any },
@@ -148,7 +146,7 @@ export class TeamService {
     return {
       id: config.id,
       teamId: config.teamId,
-      config: this.maskTeamConfigForClient(config.config),
+      config: this.maskTeamConfigForClient(),
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     };
@@ -310,6 +308,20 @@ export class TeamService {
     return conf;
   }
 
+  async getDecryptedConfigByTeamId(
+    teamId: string,
+    configName: string,
+  ): Promise<{ [key: string]: any }> {
+    const config = await this.teamConfigRepository.findOne({
+      where: { teamId },
+    });
+    if (!config) {
+      throw new NotFoundException("Team config not found");
+    }
+
+    return await this.decryptTeamConfig(config.config, configName);
+  }
+
   async getConfig(
     teamId: string,
     user: UserRequest,
@@ -343,7 +355,7 @@ export class TeamService {
     const now = Date.now();
     const config = this.teamConfigRepository.create({
       teamId,
-      config: await this.buildEncryptedTeamConfig(dto.config),
+      config: await this.buildEncryptedTeamConfig(dto.config, {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -367,7 +379,10 @@ export class TeamService {
       throw new NotFoundException("Team config not found");
     }
 
-    config.config = await this.buildEncryptedTeamConfig(dto.config);
+    config.config = await this.buildEncryptedTeamConfig(
+      dto.config,
+      config.config,
+    );
     config.updatedAt = Date.now();
     return this.toTeamConfigResponse(
       await this.teamConfigRepository.save(config),

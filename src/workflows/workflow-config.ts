@@ -1,157 +1,162 @@
-import { Events } from "../queue/queue-constants";
+import { Events } from '../queue/queue-constants';
 
 export const workflowConditionSources = {
-  CronJob: "Response",
-  ActionInstance: "Response",
+  CronJob: 'Response',
+  ActionInstance: 'Response',
 };
 
 export const workflowConfigs = {
-  "email-assistant": {
+  'email-assistant': {
     description:
-      "Email assistant that replies to emails based on the context of the email and the available resources of your set categories",
-    steps: ["Categorize Email", "Reply Email"],
-    connectorsNeeded: ["Gmail"],
+      'Email assistant that replies to emails based on the context of the email and the available resources of your set categories',
+    steps: ['Categorize Email', 'Reply Email'],
+    connectorsNeeded: ['Gmail'],
     triggerQueue: Events.PROCESS_INCOMING_EMAIL,
     processQueue: Events.EMAIL_ASSISTANT,
-    entitiesNeeded: ["email_workflow_categories", "incoming_emails"],
+    entitiesNeeded: ['email_workflow_categories', 'incoming_emails'],
   },
-  "voice-assistant": {
+  'voice-assistant': {
     description:
-      "Voice assistant that replies to voice calls based on the context of the call and the available resources of your set categories",
-    steps: ["Answer Calls"],
-    connectorsNeeded: ["Twilio"],
-    entitiesNeeded: ["email_workflow_categories", "agent_communications"],
+      'Voice assistant that replies to voice calls based on the context of the call and the available resources of your set categories',
+    steps: ['Answer Calls'],
+    connectorsNeeded: ['Twilio'],
+    entitiesNeeded: ['email_workflow_categories', 'agent_communications'],
   },
-  "telegram-assistant": {
+  'telegram-assistant': {
     description:
-      "Telegram assistant that replies to telegram messages based on the context of the message and the available resources of your set categories",
-    steps: ["Reply to Message"],
-    connectorsNeeded: ["Telegram AI Agent"],
-    entitiesNeeded: ["email_workflow_categories", "agent_communications"],
+      'Telegram assistant that replies to telegram messages based on the context of the message and the available resources of your set categories',
+    steps: ['Reply to Message'],
+    connectorsNeeded: ['Telegram AI Agent'],
+    entitiesNeeded: ['email_workflow_categories', 'agent_communications'],
   },
-  "google-business-reviews-assistant": {
+  'google-business-reviews-assistant': {
     description:
-      "Google Business Reviews assistant that replies to google business reviews messages based on the context of the message and the available resources of your set categories",
+      'Google Business Reviews assistant that replies to google business reviews messages based on the context of the message and the available resources of your set categories',
     steps: [],
-    connectorsNeeded: ["Google Business Reviews"],
-    entitiesNeeded: ["google_accounts"],
+    connectorsNeeded: ['Google Business Reviews'],
+    entitiesNeeded: ['google_accounts'],
   },
-  "kijiji-notifier": {
+  'kijiji-notifier': {
     description:
-      "Kijiji notifier that notifies you when new items are posted on Kijiji.",
-    steps: ["search-kijiji", "notify"],
-    connectorsNeeded: ["Kijiji"],
+      'Kijiji notifier that notifies you when new items are posted on Kijiji.',
+    steps: ['search-kijiji', 'notify'],
+    connectorsNeeded: ['Kijiji'],
     allowMultiple: true,
-    entitiesNeeded: ["kijiji_links"],
+    entitiesNeeded: ['kijiji_links'],
+    scraping: {
+      linkType: 'kijiji',
+      stepName: 'search-kijiji',
+      urlField: 'searchLink',
+    },
   },
-  "phone-ordering-assistant": {
+  'phone-ordering-assistant': {
     description:
-      "Phone ordering assistant that orders products or services over the phone.",
-    steps: ["Answer Calls"],
-    connectorsNeeded: ["Twilio"],
-    entitiesNeeded: ["agent_communications"],
+      'Phone ordering assistant that orders products or services over the phone.',
+    steps: ['Answer Calls'],
+    connectorsNeeded: ['Twilio'],
+    entitiesNeeded: ['agent_communications'],
   },
-  "tech-fa-chat-business-assistant": {
+  'tech-fa-chat-business-assistant': {
     description:
-      "Tech FA chat business assistant that replies to chat messages based on the context of the message and the available resources of your set categories",
-    steps: ["Establish Connection"],
-    connectorsNeeded: ["Chat Widget"],
-    entitiesNeeded: ["chat_messages"],
+      'Tech FA chat business assistant that replies to chat messages based on the context of the message and the available resources of your set categories',
+    steps: ['Establish Connection'],
+    connectorsNeeded: ['Chat Widget'],
+    entitiesNeeded: ['chat_messages'],
   },
 };
 
 export const workflowStepConfigs = {
-  "Categorize Email": {
-    description: "Categorize email into topics.",
+  'Categorize Email': {
+    description: 'Categorize email into topics.',
   },
-  "Establish Connection": {
-    description: "Establish a connection with the user.",
+  'Establish Connection': {
+    description: 'Establish a connection with the user.',
     fields: [
       {
-        label: "Assistant Mission",
-        name: "assistantMission",
-        type: "textarea",
+        label: 'Assistant Mission',
+        name: 'assistantMission',
+        type: 'textarea',
         required: true,
       },
       {
-        label: "Greeting message",
-        name: "greetingMessage",
-        type: "text",
+        label: 'Greeting message',
+        name: 'greetingMessage',
+        type: 'text',
         required: false,
       },
     ],
   },
-  "Answer Calls": {
-    description: "Answer calls with a response.",
+  'Answer Calls': {
+    description: 'Answer calls with a response.',
     fields: [
       {
-        label: "Greeting message",
-        name: "greetingMessage",
-        type: "text",
+        label: 'Greeting message',
+        name: 'greetingMessage',
+        type: 'text',
         required: true,
       },
       {
-        label: "Assistant Mission",
-        name: "assistantMission",
-        type: "textarea",
+        label: 'Assistant Mission',
+        name: 'assistantMission',
+        type: 'textarea',
         required: true,
       },
       {
-        label: "Initial context",
-        name: "initialContext",
-        type: "textarea",
+        label: 'Initial context',
+        name: 'initialContext',
+        type: 'textarea',
         required: false,
       },
     ],
     availableActions: [],
   },
-  "Reply to Message": {
-    description: "Reply to chat messages with a response.",
+  'Reply to Message': {
+    description: 'Reply to chat messages with a response.',
     fields: [
       {
-        label: "Assistant Mission",
-        name: "assistantMission",
-        type: "textarea",
+        label: 'Assistant Mission',
+        name: 'assistantMission',
+        type: 'textarea',
         required: true,
       },
     ],
     availableActions: [],
   },
-  "Reply Email": {
-    description: "Reply to email with a response.",
+  'Reply Email': {
+    description: 'Reply to email with a response.',
     fields: [
       {
-        label: "Approve before sending",
-        name: "approveBeforeSending",
-        type: "boolean",
+        label: 'Approve before sending',
+        name: 'approveBeforeSending',
+        type: 'boolean',
         required: true,
       },
     ],
   },
-  "search-kijiji": {
-    description: "Search Kijiji for items.",
+  'search-kijiji': {
+    description: 'Search Kijiji for items.',
     fields: [
       {
-        label: "Search Link",
-        name: "searchLink",
-        type: "text",
+        label: 'Search Link',
+        name: 'searchLink',
+        type: 'text',
         required: true,
       },
     ],
   },
   notify: {
-    description: "Notify the user when new items are posted on Kijiji.",
+    description: 'Notify the user when new items are posted on Kijiji.',
   },
 };
 
 export const agentActions = {
   COLLECT_INFORMATION: {
-    description: "Collect information from the user",
-    requiredInformation: ["name", "email", "phone"],
-    connectorsNeeded: ["Telegram AI Agent"] as const,
+    description: 'Collect information from the user',
+    requiredInformation: ['name', 'email', 'phone'],
+    connectorsNeeded: ['Telegram AI Agent'] as const,
   },
 } as const;
 
 export enum AgentActionKey {
-  COLLECT_INFORMATION = "COLLECT_INFORMATION",
+  COLLECT_INFORMATION = 'COLLECT_INFORMATION',
 }
