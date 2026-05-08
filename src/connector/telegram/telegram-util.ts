@@ -99,20 +99,26 @@ export async function sendMessage(
   if (options.replyToMessageId !== undefined) {
     body.reply_to_message_id = options.replyToMessageId;
   }
+  console.log("calling here");
+  try {
+    const { data } = await axios.post<{
+      ok: boolean;
+      result?: { message_id: number };
+      description?: string;
+    }>(`https://api.telegram.org/bot${options.botToken}/sendMessage`, body);
+    if (!data.ok || data.result?.message_id === undefined) {
+      throw new BadRequestException(
+        data.description ?? "Telegram sendMessage failed",
+      );
+    }
 
-  const { data } = await axios.post<{
-    ok: boolean;
-    result?: { message_id: number };
-    description?: string;
-  }>(`https://api.telegram.org/bot${options.botToken}/sendMessage`, body);
-
-  if (!data.ok || data.result?.message_id === undefined) {
+    return { messageId: data.result.message_id };
+  } catch (error) {
+    console.log(error);
     throw new BadRequestException(
-      data.description ?? "Telegram sendMessage failed",
+      error?.response?.data?.description ?? "Telegram sendMessage failed",
     );
   }
-
-  return { messageId: data.result.message_id };
 }
 
 export function extractMessage(

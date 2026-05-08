@@ -73,6 +73,7 @@ export class TeamProcessingService {
           workflowType: workflow.workflowType,
           url,
           linkType: scraping.linkType,
+          steps: workflow.steps,
         };
       })
       .filter(Boolean);

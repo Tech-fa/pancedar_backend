@@ -48,13 +48,16 @@ export class KijijiLinkNotificationHandler {
           workflowRun.context?.chatId,
         );
         if (workflowRun.context.chatId) {
-          await sendMessage(
-            workflowRun.context.chatId,
-            this.formatMessage(payload),
-            {
-              botToken: process.env.TELEGRAM_BOT_TOKEN,
-            },
-          );
+          const linkChunks = this.chunkLinks(payload.links, 5);
+          for (const linkChunk of linkChunks) {
+            await sendMessage(
+              workflowRun.context.chatId,
+              this.formatMessage({...payload, links: linkChunk}),
+              {
+                botToken: process.env.TELEGRAM_BOT_TOKEN,
+              },
+            );
+          }
         }
       }
     } catch (error) {
@@ -63,6 +66,13 @@ export class KijijiLinkNotificationHandler {
         stack: error?.stack,
       });
     }
+  }
+   private chunkLinks(links: string[], chunkSize: number): string[][] {
+    const chunks: string[][] = [];
+    for (let i = 0; i < links.length; i += chunkSize) {
+      chunks.push(links.slice(i, i + chunkSize));
+    }
+    return chunks;
   }
 
   async handleWebhook(body: TelegramWebhookUpdateDto): Promise<void> {

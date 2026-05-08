@@ -67,10 +67,23 @@ export const workflowConfigs = {
     steps: ["search-autotrader", "notify"],
     connectorsNeeded: ["Kijiji"],
     allowMultiple: true,
-    entitiesNeeded: ["autotrader_links"],
+    entitiesNeeded: ["kijiji_links"],
     scraping: {
       linkType: "autotrader",
       stepName: "search-autotrader",
+      urlField: "searchLink",
+    },
+  },
+  "facebook-notifier": {
+    description:
+      "Facebook notifier that notifies you when new items are posted on Facebook.",
+    steps: ["search-facebook", "notify"],
+    connectorsNeeded: ["Kijiji"],
+    allowMultiple: true,
+    entitiesNeeded: ["kijiji_links"],
+    scraping: {
+      linkType: "facebook",
+      stepName: "search-facebook",
       urlField: "searchLink",
     },
   },
@@ -202,6 +215,24 @@ export const workflowStepConfigs = {
   },
   "search-autotrader": {
     description: "Search Autotrader for items.",
+    fields: [
+      {
+        label: "Search Link",
+        name: "searchLink",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Fallback Zip",
+        name: "fallbackZip",
+        type: "text",
+        required: true,
+      }
+    ],
+
+  },
+  "search-facebook": {
+    description: "Search Facebook for items.",
     fields: [
       {
         label: "Search Link",
