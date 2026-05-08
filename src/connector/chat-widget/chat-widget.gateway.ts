@@ -5,19 +5,21 @@ import {
   WebSocketGateway,
 } from "@nestjs/websockets";
 import type { IncomingMessage } from "http";
-import { LlmAgent } from "src/llm-integration/llm-agent";
-import { BaseLlmAgent } from "src/llm-integration/llm-agent-base";
+
 import { QueuePublisher } from "src/queue/queue.publisher";
 import { RagRetrievalService } from "src/rag/rag-retrieval.service";
 import { SERVICE_MAP } from "src/service-mapping/service.map";
 import { Public } from "src/util/constants";
 import type { RawData, WebSocket } from "ws";
-import { ChatMessageEntity, ChatMessageSentBy } from "./chat-message.entity";
+import { ChatMessageSentBy } from "./chat-message.entity";
 import { CHAT_WIDGET_WS_PATH, ChatWidgetService } from "./chat-widget.service";
 import { Events } from "src/queue/queue-constants";
+import { WorkflowType } from "../../workflows/workflow-config";
+import { chatFactoryLlmAgent } from "../../llm-integration/chat-llm/chat-llm-factory";
+import { BaseChatLlmAgent } from "../../llm-integration/chat-llm/base-chat-llm";
 
 type ChatWidgetWs = WebSocket & {
-  agent?: BaseLlmAgent;
+  agent?: BaseChatLlmAgent;
   runId?: string | null;
 };
 
@@ -29,6 +31,7 @@ type ChatWidgetWs = WebSocket & {
 export class ChatWidgetGateway
   implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatWidgetGateway.name);
+  private actionPerformedMap = new Map<string, Function>();
 
   constructor(
     private readonly chatWidgetService: ChatWidgetService,
@@ -46,27 +49,35 @@ export class ChatWidgetGateway
     request: IncomingMessage,
   ): Promise<void> {
     const runId = this.parseRunIdFromUrl(request.url);
+    console.log("runId", runId);
     try {
       await this.chatWidgetService.assertChatWidgetRun(runId);
       const context = await this.chatWidgetService.loadAgentContext(runId);
       const initialState = await this.chatWidgetService.loadAgentState(runId);
-      client.agent = new LlmAgent(
+      client.agent = chatFactoryLlmAgent(
+        WorkflowType.TECH_FA_CHAT_BUSINESS_ASSISTANT,
         this.ragRetrievalService,
         this.queuePublisher,
         this.serviceMap,
         {
           source: runId,
-          mission: context?.assistantMission,
-          availableActions: context?.allowedActions,
+          linkType: context?.linkType,
+          linkAsk: context?.linkAsk,
+          linkDestination: context?.linkDestination,
+          link: context?.link,
+          beforeYouGo: context?.beforeYouGo,
           initialState,
           llmConfig: {
             apiUrl: context?.llmAgent?.apiUrl,
             apiKey: context?.llmAgent?.apiKey,
             model: context?.llmAgent?.model,
+            teamId: context?.teamId,
+          },
+          bindActionPerformed: (func: Function) => {
+            this.actionPerformedMap[runId] = func;
           },
           onStateChange: (state) =>
             this.chatWidgetService.saveAgentState(runId, state),
-          skipPartialToken: true,
         },
       );
       client.runId = runId;
@@ -100,11 +111,15 @@ export class ChatWidgetGateway
       return;
     }
 
-    let message: { message?: string };
+    let message: { message?: string; actionInfo?: Record<string, string> };
     try {
       message = JSON.parse(data.toString());
     } catch {
       this.sendError(client, "Invalid JSON message");
+      return;
+    }
+    if (message.actionInfo) {
+      this.actionPerformedMap.get(client.runId)?.(true);
       return;
     }
 
@@ -123,26 +138,16 @@ export class ChatWidgetGateway
       message: incomingText,
       sentBy: ChatMessageSentBy.USER,
     });
-
+    client.send(JSON.stringify({ type: "typing" }));
     client.agent
       .handleTurn(
         {
-          sendPartialToken: (token) => {
-            // client.send(JSON.stringify({ type: 'assistant_delta', token }));
-          },
-          sendFullToken: (token) => {
+          sendToken: (token) => {
             if (token.trim() === "") {
               return;
             }
             void this.saveAssistantMessage(client, token);
             client.send(JSON.stringify({ type: "assistant", message: token }));
-          },
-          sendEmptyToken: () => {
-            // client.send(JSON.stringify({ type: "assistant" }));
-          },
-          endConversation: () => {
-            // client.send(JSON.stringify({ type: "assistant" }));
-            client.close();
           },
         },
         incomingText,

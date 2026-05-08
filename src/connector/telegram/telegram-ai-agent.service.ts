@@ -105,15 +105,16 @@ export class TelegramService {
       const baseLlmAgentConfig = {
         source: run.id,
         llmConfig: {
-          apiUrl: teamConfig?.llmAgent?.apiUrl,
-          apiKey: teamConfig?.llmAgent?.apiKey,
-          model: teamConfig?.llmAgent?.model,
+          apiUrl: teamConfig?.config?.llmAgent?.apiUrl,
+          apiKey: teamConfig?.config?.llmAgent?.apiKey,
+          model: teamConfig?.config?.llmAgent?.model,
+          teamId: teamConfig?.teamId,
         },
         skipPartialToken: true,
         mission: run.workflow?.steps.find(
           (step) => step.name === "Reply to Message",
         )?.values.assistantMission,
-        onStateChange: (state: any) => {
+        onStateChange: (state: any): any => {
           this.cacheService.setData(
             cacheKey,
             JSON.stringify({ ...state, startedAt }),

@@ -36,7 +36,7 @@ export type CompleteLLMOptions = {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
-  timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 export async function* streamLLM(
@@ -104,49 +104,39 @@ export async function* streamLLM(
  * cost automatically persisted to the cost module.
  */
 export async function completeUserPrompt(
-  prompt: string,
-  options?: {
-    maxTokens?: number;
-    /** Required to persist cost records */
-    teamId?: string;
-    workflowRunId?: string | null;
-  },
+  options?: CompleteLLMOptions,
 ): Promise<string> {
-  const url = process.env.LLM_API_URL ?? "";
-  const apiKey = process.env.LLM_API_KEY ?? "";
-  const model = process.env.LLM_MODEL ?? "gpt-4o-mini";
+  const body: Record<string, unknown> = {
+    model: options.model,
+    messages: options.messages,
+    temperature: 0,
+    stream: false,
+    reasoning: {
+      enabled: false,
+    },
+  };
 
-  if (!url?.trim()) {
-    throw new Error("LLM_API_URL is not configured");
-  }
-  if (!apiKey?.trim()) {
-    throw new Error("LLM_API_KEY is not configured");
-  }
-
-  const maxTokens = options?.maxTokens ?? 1024;
-
+  if (typeof options.maxTokens === "number")
+    body.max_tokens = options.maxTokens;
   try {
     const { data } = await axios.post<unknown>(
-      url,
-      {
-        model,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: maxTokens,
-      },
+      options.apiUrl,
+
+      body,
       {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${options.apiKey}`,
           "Content-Type": "application/json",
         },
-        timeout: 120_000,
+        signal: options.signal,
       },
     );
 
-    const text = this.extractLlmAssistantText(data);
+    const text = extractLlmAssistantText(data);
 
     return text;
   } catch (error) {
-    this.logger.error("Error calling LLM API:", error);
+    console.error("Error calling LLM API:", error);
     throw error;
   }
 }

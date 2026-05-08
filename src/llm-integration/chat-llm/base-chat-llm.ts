@@ -1,18 +1,15 @@
 import { Logger } from "@nestjs/common";
-import { Events } from "../queue/queue-constants";
-import { QueuePublisher } from "../queue/queue.publisher";
-import { RagRetrievalService } from "../rag/rag-retrieval.service";
-import { ChatMessage, streamLLM } from "./llm-stream";
+import { Events } from "../../queue/queue-constants";
+import { QueuePublisher } from "../../queue/queue.publisher";
+import { RagRetrievalService } from "../../rag/rag-retrieval.service";
+import { ChatMessage, completeUserPrompt, streamLLM } from "../llm-stream";
 
-export interface TurnParams {
-  sendFullToken: (token: string) => void;
-  sendPartialToken: (token: string) => void;
-  sendEmptyToken: () => void;
-  endConversation: () => void;
+export interface ChatTurnParams {
+  sendToken: (token: string) => void;
 }
 const PLANNER_MAX_TOKENS = 1024;
 
-export abstract class BaseLlmAgent {
+export abstract class BaseChatLlmAgent {
   public currentAbort: AbortController | null = null;
   protected history: ChatMessage[] = [];
   protected skipLookupFiller: boolean = false;
@@ -22,7 +19,7 @@ export abstract class BaseLlmAgent {
   protected source: string;
   protected mission: string;
   protected initialContext: string;
-  protected previousAction: any = "NONE";
+  protected previousAction: any = "ANSWER_USER";
   protected extraContext: string = "";
   protected onStateChange: Function;
 
@@ -68,16 +65,14 @@ export abstract class BaseLlmAgent {
 
   protected abstract loadState(state: any): void;
 
-  async handleTurn(params: TurnParams, userText: string): Promise<void> {
+  async handleTurn(params: ChatTurnParams, userText: string): Promise<void> {
     const abort = new AbortController();
     this.currentAbort = abort;
     const signal = abort.signal;
 
     try {
-      await this.runTurn(params, userText, signal, {});
+      await this.runTurn(params, userText, signal);
     } finally {
-      // Only clear the shared ref if it still points at us. A newer turn
-      // may have already installed its own controller.
       if (this.currentAbort === abort) {
         this.currentAbort = null;
       }
@@ -87,25 +82,14 @@ export abstract class BaseLlmAgent {
   protected async performLookupKb({
     params,
     userText,
-    lookupDepth,
-    originalUserText,
     signal,
     plan,
   }: {
-    params: TurnParams;
+    params: ChatTurnParams;
     userText: string;
-    lookupDepth: number;
-    originalUserText: string;
     signal: AbortSignal;
     plan: any;
   }): Promise<void> {
-    if (lookupDepth > 0) {
-      this.logger.warn(
-        `Planner requested a repeated KB lookup. Suppressing duplicate lookup.`,
-      );
-      params.sendEmptyToken();
-      return;
-    }
     const query = plan.query?.trim() || userText;
     this.logger.log(`KB lookup triggered for query: ${query}`);
     this.setState({ lookupState: "fetching" });
@@ -115,13 +99,11 @@ export abstract class BaseLlmAgent {
       lookupState: "idle",
     });
     if (signal.aborted) return;
-    return await this.runTurn(params, "", signal, {
-      lookupDepth: lookupDepth + 1,
-      originalUserText,
-      internal: true,
-    });
+    return await this.runTurn(params, "", signal);
   }
   protected async fetchKbContext(query: string): Promise<string> {
+    console.log("fetchKbContext", query);
+    console.log("llmConfig", this.llmConfig);
     try {
       const chunks = await this.ragRetrievalService.retrieve(
         "",
@@ -147,49 +129,20 @@ export abstract class BaseLlmAgent {
   }
 
   protected abstract runTurn(
-    params: TurnParams,
+    params: ChatTurnParams,
     userText: string,
     signal: AbortSignal,
-    options: any,
   ): Promise<void>;
 
-  protected baseFirstStep(
-    params: TurnParams,
-    userText: string,
-    options: { originalUserText?: string; lookupDepth?: number },
-  ) {
-    const originalUserText = options.originalUserText ?? userText;
+  protected baseFirstStep(userText: string) {
     const turnMessages: ChatMessage[] = [...this.history];
     if (userText.trim()) {
       turnMessages.push({ role: "user", content: userText });
       this.pushHistory({ role: "user", content: userText });
     }
 
-    const lookupDepth = options.lookupDepth ?? 0;
-    const shouldBufferSpeech = lookupDepth > 0;
-    const pipeSpeechToClient = (chunk: string): void => {
-      if (shouldBufferSpeech) {
-        return;
-      }
-      params.sendPartialToken(chunk);
-    };
-    const turnInstructions =
-      lookupDepth > 0
-        ? [
-            "A Knowledge base lookup was already performed for the caller's latest question.",
-            `The caller's latest question was: "${originalUserText}"`,
-            "Use the current Knowledge base to answer now.",
-            "Do not return LOOKUP_KB again for this question.",
-            "If the Knowledge base still does not contain the answer, say you could not find that information.",
-          ].join("\n")
-        : "";
     return {
       turnMessages,
-      turnInstructions,
-      pipeSpeechToClient,
-      shouldBufferSpeech,
-      originalUserText,
-      lookupDepth,
     };
   }
   protected pushHistory(message: ChatMessage): void {
@@ -200,6 +153,9 @@ export abstract class BaseLlmAgent {
       workflowRunId: this.source,
     });
   }
+  protected injectExtra(plan: any): string {
+    return plan.summary;
+  }
 
   protected abstract setState(any): any;
 
@@ -207,34 +163,21 @@ export abstract class BaseLlmAgent {
     plan,
     signal,
     params,
-    shouldBufferSpeech,
   }: {
     plan: any;
     signal: AbortSignal;
-    params: TurnParams;
-    shouldBufferSpeech: boolean;
+    params: ChatTurnParams;
   }) {
-    if (
-      (((shouldBufferSpeech || this.skipPartialToken) &&
-        plan.action !== "LOOKUP_KB") ||
-        (this.skipPartialToken &&
-          plan.action == "LOOKUP_KB" &&
-          !this.skipLookupFiller)) &&
-      plan.spokenMessage &&
-      !signal.aborted
-    ) {
-      params.sendFullToken(plan.spokenMessage);
+    if (plan.summary && !signal.aborted && plan.action !== "LOOKUP_KB") {
+      params.sendToken(this.injectExtra(plan));
     }
-    if (plan.spokenMessage) {
-      this.pushHistory({ role: "assistant", content: plan.spokenMessage });
+    if (plan.summary) {
+      this.pushHistory({ role: "assistant", content: plan.summary });
     }
     this.setState({ previousAction: plan.action });
   }
 
-  protected abstract main_prompt(
-    turnMessages: ChatMessage[],
-    turnInstructions: string,
-  ): string;
+  protected abstract main_prompt(turnMessages: ChatMessage[]): string;
   protected abstract parseAction(value: unknown): any;
   protected abstract planTurnResult(
     parsed: Record<string, unknown>,
@@ -244,90 +187,27 @@ export abstract class BaseLlmAgent {
   protected async planTurn<T>(
     turnMessages: ChatMessage[],
     userText: string,
-    onSpeechChunk: (chunk: string) => void,
     signal: AbortSignal,
-    turnInstructions: string = "",
   ): Promise<T> {
-    const prompt = this.main_prompt(turnMessages, turnInstructions);
+    const prompt = this.main_prompt(turnMessages);
     const planningMessages: ChatMessage[] = [
       { role: "system", content: prompt },
     ];
     const started = Date.now();
     let raw = "";
-    let valueStart: number | null = null;
-    let cursor = 0;
-    let spokenDone = false;
+
     let firstSpeechAt: number | null = null;
     let emitted = "";
 
-    const extractSpoken = (): void => {
-      if (spokenDone) return;
-
-      if (valueStart === null) {
-        const SPOKEN_KEY = '"spokenMessage"';
-        const keyIdx = raw.indexOf(SPOKEN_KEY);
-        if (keyIdx === -1) return;
-        const after = raw.slice(keyIdx + SPOKEN_KEY.length);
-        const m = after.match(/^\s*:\s*"/);
-        if (!m) return;
-        valueStart = keyIdx + SPOKEN_KEY.length + m[0].length;
-        cursor = valueStart;
-      }
-
-      let i = cursor;
-      let chunk = "";
-      while (i < raw.length) {
-        const ch = raw[i];
-        if (ch === "\\") {
-          if (i + 1 >= raw.length) break;
-          const next = raw[i + 1];
-          const map: Record<string, string> = {
-            n: "\n",
-            t: "\t",
-            r: "\r",
-            '"': '"',
-            "\\": "\\",
-            "/": "/",
-            b: "\b",
-            f: "\f",
-          };
-          chunk += map[next] ?? next;
-          i += 2;
-        } else if (ch === '"') {
-          spokenDone = true;
-          i += 1;
-          break;
-        } else {
-          chunk += ch;
-          i += 1;
-        }
-      }
-      cursor = i;
-      if (chunk) {
-        if (firstSpeechAt === null) {
-          firstSpeechAt = Date.now();
-          this.logger.debug(
-            `planner first speech chunk in ${firstSpeechAt - started}ms`,
-          );
-        }
-        emitted += chunk;
-        if (signal.aborted) return;
-        onSpeechChunk(chunk);
-      }
-    };
-
     try {
-      for await (const tok of streamLLM({
+      const response = await completeUserPrompt({
+        messages: planningMessages,
+        model: this.llmConfig.model,
         apiUrl: this.llmConfig.apiUrl,
         apiKey: this.llmConfig.apiKey,
-        model: this.llmConfig.model,
-        temperature: 0,
         maxTokens: PLANNER_MAX_TOKENS,
-        messages: planningMessages,
-      })) {
-        raw += tok;
-        extractSpoken();
-      }
+      });
+      raw = response;
 
       const json = this.sanitizePlannerJson(raw);
       if (!json) {
@@ -337,13 +217,13 @@ export abstract class BaseLlmAgent {
         return {
           action: "LOOKUP_KB",
           query: userText,
-          spokenMessage: emitted.trim() || "Let me quickly check that for you.",
+          summary: emitted.trim() || "Let me quickly check that for you.",
         } as T;
       }
       const parsed = JSON.parse(json) as Record<string, unknown>;
 
       this.logger.debug(
-        `planner completed in ${Date.now() - started}ms (spoken started at +${
+        `planner completed in ${Date.now() - started}ms (summary started at +${
           firstSpeechAt !== null ? firstSpeechAt - started : -1
         }ms)`,
       );
@@ -362,8 +242,8 @@ export abstract class BaseLlmAgent {
         // Caller will observe signal.aborted and bail before acting on
         // this plan, so the concrete action doesn't matter.
         return {
-          action: "NONE",
-          spokenMessage: emitted.trim() || undefined,
+          action: "ANSWER_USER",
+          summary: emitted.trim() || undefined,
         } as T;
       }
       console.error(err);
@@ -375,7 +255,7 @@ export abstract class BaseLlmAgent {
       return {
         action: "LOOKUP_KB",
         query: userText,
-        spokenMessage: emitted.trim() || "Let me quickly check that for you.",
+        summary: emitted.trim() || "Let me quickly check that for you.",
       } as T;
     }
   }

@@ -162,7 +162,11 @@ export class TwilioVoiceService {
         ),
       ]);
       u.searchParams.set("runId", workflowRun.id);
-      const context = { ...workflowRun.context, ...teamConfig.llmAgent };
+      const context = {
+        ...workflowRun.context,
+        ...teamConfig.config.llmAgent,
+        teamId: teamConfig.teamId,
+      };
       await this.cacheService.setData(
         `${TWILIO_CACHE_PREFIX}_${workflowRun.id}`,
         JSON.stringify(context),

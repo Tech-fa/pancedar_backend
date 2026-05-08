@@ -10,6 +10,7 @@ import {
 import { Public } from 'src/util/constants';
 import { ChatWidgetService } from './chat-widget.service';
 import {
+  ActionPerformedChatWidgetDto,
   ChatWidgetMessagesQueryDto,
   InitChatWidgetDto,
   InitChatWidgetResponse,
@@ -34,6 +35,17 @@ export class ChatWidgetController {
   @Post('register')
   async registerChat(
     @Body() dto: RegisterChatWidgetDto,
+    @Headers('x-chat-widget-signature') signature: string,
+    @Headers('x-chat-widget-timestamp') timestamp: string,
+  ): Promise<RegisterChatWidgetResponse> {
+    return this.chatWidgetService.registerChat(dto, {
+      signature,
+      timestamp,
+    });
+  }
+  @Post('action-performed')
+  async actionPerformed(
+    @Body() dto: ActionPerformedChatWidgetDto,
     @Headers('x-chat-widget-signature') signature: string,
     @Headers('x-chat-widget-timestamp') timestamp: string,
   ): Promise<RegisterChatWidgetResponse> {

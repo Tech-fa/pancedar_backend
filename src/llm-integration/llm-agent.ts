@@ -1,7 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { ChatMessage, streamLLM } from "./llm-stream";
 import { RagRetrievalService } from "src/rag/rag-retrieval.service";
-import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
 import { agentActions } from "../workflows/workflow-config";
 import { QueuePublisher } from "../queue/queue.publisher";
@@ -14,7 +13,7 @@ type ActionType =
   | "END_CONVERSATION"
   | "NONE";
 
-type TurnPlan = {
+export type TurnPlan = {
   action: ActionType;
   query?: string;
   spokenMessage?: string;
@@ -57,8 +56,6 @@ export type LlmAgentState = {
   previousAction: ActionType;
 };
 
-const PLANNER_MAX_TOKENS = 1024;
-
 type LlmAgentOptions = {
   initialContext?: string;
   mission?: string;
@@ -68,37 +65,26 @@ type LlmAgentOptions = {
     apiUrl: string;
     apiKey: string;
     model: string;
+    teamId: string;
   };
   skipPartialToken?: boolean;
   initialState?: LlmAgentState;
-  onStateChange?: (state: LlmAgentState) => void | Promise<void>;
+  onStateChange?: (state: any) => Promise<void>;
+  skipLookupFiller?: boolean;
 };
 
 export class LlmAgent extends BaseLlmAgent {
-  private readonly history: ChatMessage[] = [];
-  private readonly logger: Logger = new Logger(LlmAgent.name);
-  private extraContext: string = "";
   private actionState: ActionState = "idle";
   private lookupState: "idle" | "fetching" = "idle";
   private actionPerformed: string[] = [];
   private actionInstances: Record<string, ActionInstance> = {};
-  private source: string;
   private availableActions: Record<
     string,
     { requiredInformation: string[]; description: string }
   > = {};
-  private skipPartialToken: boolean = false;
   private currentActionId: string | null = null;
-  private initialContext: string;
-  private previousAction: ActionType = "NONE";
-  private onStateChange?: (state: LlmAgentState) => void | Promise<void>;
-  private mission: string;
-  private llmConfig: {
-    apiUrl: string;
-    apiKey: string;
-    model: string;
-  };
-  private main_prompt = (
+
+  main_prompt = (
     turnMessages: ChatMessage[],
     turnInstructions: string = "",
   ) => `You are a friendly and helpful assistant.
@@ -227,17 +213,16 @@ export class LlmAgent extends BaseLlmAgent {
     ${this.availableActions}
     `;
   constructor(
-    private readonly ragRetrievalService: RagRetrievalService,
-    private readonly queuePublisher: QueuePublisher,
+    public readonly ragRetrievalService: RagRetrievalService,
+    public readonly queuePublisher: QueuePublisher,
     private readonly serviceMap: Record<string, any>,
     options: LlmAgentOptions = {
       source: "default",
-      llmConfig: { apiUrl: "", apiKey: "", model: "" },
+      llmConfig: { apiUrl: "", apiKey: "", model: "", teamId: "" },
     },
   ) {
-    super();
-    this.initialContext = options.initialContext ?? "None";
-    this.mission = options.mission ?? "None";
+    super(options, queuePublisher);
+    this.logger = new Logger(LlmAgent.name);
     this.availableActions = {};
     for (const action of Object.keys(options.availableActions || {}) || []) {
       this.availableActions[action] = {
@@ -247,13 +232,6 @@ export class LlmAgent extends BaseLlmAgent {
         description: agentActions[action].description,
       };
     }
-    this.source = options.source;
-    this.skipPartialToken = options.skipPartialToken ?? false;
-    if (Object.keys(options.initialState ?? {}).length) {
-      this.loadState(options.initialState);
-    }
-    this.onStateChange = options.onStateChange;
-    this.llmConfig = options.llmConfig;
   }
 
   public saveState(): LlmAgentState {
@@ -313,7 +291,7 @@ export class LlmAgent extends BaseLlmAgent {
     this.previousAction = state.previousAction;
   }
 
-  private setState(
+  setState(
     update:
       | Partial<LlmAgentState>
       | ((state: LlmAgentState) => Partial<LlmAgentState>),
@@ -413,71 +391,30 @@ export class LlmAgent extends BaseLlmAgent {
     return this.createActionInstance(actionName);
   }
 
-  private pushHistory(message: ChatMessage): void {
-    this.setState({ history: [...this.history, message] });
-    this.queuePublisher?.publish?.(Events.RECORD_COMMUNICATION, {
-      role: message.role,
-      content: message.content,
-      workflowRunId: this.source,
-    });
-  }
-
   protected async runTurn(
     params: TurnParams,
     userText: string,
     signal: AbortSignal,
     options: RunTurnOptions = {},
   ): Promise<void> {
-    const originalUserText = options.originalUserText ?? userText;
-    const turnMessages: ChatMessage[] = [...this.history];
-    if (userText.trim()) {
-      turnMessages.push({ role: "user", content: userText });
-    }
+    const {
+      turnMessages,
+      turnInstructions,
+      pipeSpeechToClient,
+      shouldBufferSpeech,
+      lookupDepth,
+      originalUserText,
+    } = this.baseFirstStep(params, userText, options);
 
-    // this.setStage("answering");
-
-    const lookupDepth = options.lookupDepth ?? 0;
-    const shouldBufferSpeech = lookupDepth > 0;
-    const pipeSpeechToClient = (chunk: string): void => {
-      if (shouldBufferSpeech) {
-        return;
-      }
-      params.sendPartialToken(chunk);
-    };
-    const turnInstructions =
-      lookupDepth > 0
-        ? [
-            "A Knowledge base lookup was already performed for the caller's latest question.",
-            `The caller's latest question was: "${originalUserText}"`,
-            "Use the current Knowledge base to answer now.",
-            "Do not return LOOKUP_KB again for this question.",
-            "If the Knowledge base still does not contain the answer, say you could not find that information.",
-          ].join("\n")
-        : "";
-    const plan = await this.planTurn(
+    const plan = await this.planTurn<TurnPlan>(
       turnMessages,
       userText,
       pipeSpeechToClient,
       signal,
       turnInstructions,
     );
+    this.afterPlan({ plan, signal, params, shouldBufferSpeech });
 
-    if (
-      ((shouldBufferSpeech && plan.action !== "LOOKUP_KB") ||
-        this.skipPartialToken) &&
-      plan.spokenMessage &&
-      !signal.aborted
-    ) {
-      params.sendFullToken(plan.spokenMessage);
-    }
-
-    if (!options.internal && userText.trim()) {
-      this.pushHistory({ role: "user", content: userText });
-    }
-    this.setState({ previousAction: plan.action });
-    if (plan.spokenMessage) {
-      this.pushHistory({ role: "assistant", content: plan.spokenMessage });
-    }
     if (plan.action === "NONE" || plan.action === "END_CONVERSATION") {
       params.sendEmptyToken();
 
@@ -569,7 +506,7 @@ export class LlmAgent extends BaseLlmAgent {
       case "LOOKUP_KB": {
         if (lookupDepth > 0) {
           this.logger.warn(
-            `Planner requested a repeated KB lookup for "${originalUserText}". Suppressing duplicate lookup.`,
+            `Planner requested a repeated KB lookup. Suppressing duplicate lookup.`,
           );
           params.sendEmptyToken();
           return;
@@ -709,201 +646,29 @@ export class LlmAgent extends BaseLlmAgent {
     });
   }
 
-  private sanitizePlannerJson(raw: string): string | null {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start === -1 || end === -1 || end <= start) return null;
-    return raw.slice(start, end + 1);
+  protected planTurnResult(parsed: Record<string, unknown>, emitted: string) {
+    return {
+      query: typeof parsed.query === "string" ? parsed.query.trim() : undefined,
+      spokenMessage: parsed.spokenMessage || emitted.trim() || undefined,
+      availableInformation:
+        typeof parsed.availableInformation === "object"
+          ? (parsed.availableInformation as Record<string, string>)
+          : {},
+      actionName:
+        typeof parsed.actionName === "string"
+          ? parsed.actionName.trim()
+          : undefined,
+      actionId:
+        typeof parsed.actionId === "string"
+          ? parsed.actionId.trim()
+          : undefined,
+    };
   }
 
-  private parseAction(value: unknown): ActionType {
+  parseAction(value: unknown): ActionType {
     if (value === "LOOKUP_KB") return "LOOKUP_KB";
     if (value === "PERFORM_EXTERNAL_ACTION") return "PERFORM_EXTERNAL_ACTION";
     if (value === "END_CONVERSATION") return "END_CONVERSATION";
     return "NONE";
-  }
-
-  private async planTurn(
-    turnMessages: ChatMessage[],
-    userText: string,
-    onSpeechChunk: (chunk: string) => void,
-    signal: AbortSignal,
-    turnInstructions: string = "",
-  ): Promise<TurnPlan> {
-    const prompt = this.main_prompt(turnMessages, turnInstructions);
-    const planningMessages: ChatMessage[] = [
-      { role: "system", content: prompt },
-    ];
-    const started = Date.now();
-    let raw = "";
-    let valueStart: number | null = null;
-    let cursor = 0;
-    let spokenDone = false;
-    let firstSpeechAt: number | null = null;
-    let emitted = "";
-
-    const extractSpoken = (): void => {
-      if (spokenDone) return;
-
-      if (valueStart === null) {
-        const SPOKEN_KEY = '"spokenMessage"';
-        const keyIdx = raw.indexOf(SPOKEN_KEY);
-        if (keyIdx === -1) return;
-        const after = raw.slice(keyIdx + SPOKEN_KEY.length);
-        const m = after.match(/^\s*:\s*"/);
-        if (!m) return;
-        valueStart = keyIdx + SPOKEN_KEY.length + m[0].length;
-        cursor = valueStart;
-      }
-
-      let i = cursor;
-      let chunk = "";
-      while (i < raw.length) {
-        const ch = raw[i];
-        if (ch === "\\") {
-          if (i + 1 >= raw.length) break;
-          const next = raw[i + 1];
-          const map: Record<string, string> = {
-            n: "\n",
-            t: "\t",
-            r: "\r",
-            '"': '"',
-            "\\": "\\",
-            "/": "/",
-            b: "\b",
-            f: "\f",
-          };
-          chunk += map[next] ?? next;
-          i += 2;
-        } else if (ch === '"') {
-          spokenDone = true;
-          i += 1;
-          break;
-        } else {
-          chunk += ch;
-          i += 1;
-        }
-      }
-      cursor = i;
-      if (chunk) {
-        if (firstSpeechAt === null) {
-          firstSpeechAt = Date.now();
-          this.logger.debug(
-            `planner first speech chunk in ${firstSpeechAt - started}ms`,
-          );
-        }
-        emitted += chunk;
-        if (signal.aborted) return;
-        onSpeechChunk(chunk);
-      }
-    };
-
-    try {
-      for await (const tok of streamLLM({
-        apiUrl: this.llmConfig.apiUrl,
-        apiKey: this.llmConfig.apiKey,
-        model: this.llmConfig.model,
-        temperature: 0,
-        maxTokens: PLANNER_MAX_TOKENS,
-        messages: planningMessages,
-      })) {
-        raw += tok;
-        extractSpoken();
-      }
-
-      const json = this.sanitizePlannerJson(raw);
-      if (!json) {
-        this.logger.warn(
-          `Planner did not return JSON. raw="${raw.slice(0, 500)}"`,
-        );
-        return {
-          action: "LOOKUP_KB",
-          query: userText,
-          spokenMessage: emitted.trim() || "Let me quickly check that for you.",
-        };
-      }
-      const parsed = JSON.parse(json) as Record<string, unknown>;
-
-      const spokenFromJson =
-        typeof parsed.spokenMessage === "string"
-          ? parsed.spokenMessage.trim()
-          : "";
-
-      this.logger.debug(
-        `planner completed in ${Date.now() - started}ms (spoken started at +${
-          firstSpeechAt !== null ? firstSpeechAt - started : -1
-        }ms)`,
-      );
-
-      return {
-        action: this.parseAction(parsed.action),
-        query:
-          typeof parsed.query === "string" ? parsed.query.trim() : undefined,
-        spokenMessage: spokenFromJson || emitted.trim() || undefined,
-        availableInformation:
-          typeof parsed.availableInformation === "object"
-            ? (parsed.availableInformation as Record<string, string>)
-            : {},
-        actionName:
-          typeof parsed.actionName === "string"
-            ? parsed.actionName.trim()
-            : undefined,
-        actionId:
-          typeof parsed.actionId === "string"
-            ? parsed.actionId.trim()
-            : undefined,
-      };
-    } catch (err) {
-      if (signal.aborted) {
-        this.logger.debug(
-          `planner aborted after ${Date.now() - started}ms (raw=${
-            raw.length
-          } chars)`,
-        );
-        // Caller will observe signal.aborted and bail before acting on
-        // this plan, so the concrete action doesn't matter.
-        return {
-          action: "NONE",
-          spokenMessage: emitted.trim() || undefined,
-        };
-      }
-      console.error(err);
-      this.logger.warn(
-        `Planner failed after ${
-          Date.now() - started
-        }ms, falling back to LOOKUP_KB: ${(err as Error).message}`,
-      );
-      return {
-        action: "LOOKUP_KB",
-        query: userText,
-        spokenMessage: emitted.trim() || "Let me quickly check that for you.",
-        availableInformation: {},
-      };
-    }
-  }
-
-  private async fetchKbContext(query: string): Promise<string> {
-    try {
-      const chunks = await this.ragRetrievalService.retrieve(
-        "",
-        "category",
-        "",
-        query,
-        5,
-        true,
-      );
-
-      return chunks
-        .map(
-          (c, i) =>
-            `[${i + 1}] (${c.sourceType}${
-              c.sourceRef ? `: ${c.sourceRef}` : ""
-            })\n${c.content}`,
-        )
-        .join("\n\n");
-    } catch (err) {
-      this.logger.error(`RAG retrieval failed: ${(err as Error).message}`);
-      return "";
-    }
   }
 }

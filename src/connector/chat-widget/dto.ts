@@ -20,6 +20,20 @@ export class RegisterChatWidgetDto {
   sessionId?: string;
 }
 
+export class ActionPerformedChatWidgetDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  appName: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  sessionId?: string;
+
+  actionInfo: Record<string, string>;
+}
+
 export class InitChatWidgetDto {
   @IsString()
   @IsNotEmpty()

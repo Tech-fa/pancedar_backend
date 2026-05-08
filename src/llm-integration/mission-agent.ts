@@ -1,24 +1,21 @@
 import { Logger } from "@nestjs/common";
-import { ChatMessage, streamLLM } from "./llm-stream";
+import { ChatMessage } from "./llm-stream";
 import { RagRetrievalService } from "src/rag/rag-retrieval.service";
 import { QueuePublisher } from "../queue/queue.publisher";
 import { Events } from "../queue/queue-constants";
-import { extractSpoken, SpokenExtractionState } from "./llm-util";
 import { BaseLlmAgent, TurnParams } from "./llm-agent-base";
 
 type ActionType =
   | "LOOKUP_KB"
-  | "TAKING_USER_ORDER"
   | "END_CONVERSATION"
   | "NONE";
 
 type TurnPlan = {
   action: ActionType;
   query?: string;
-  spokenMessage?: string;
-  order?: string;
-  orderConfirmed?: boolean;
-  extraInformation?: Record<string, string>;
+  spokenMessage: string;
+  availableInformation?: Record<string, string>;
+  allInformationCollected?: boolean;
 };
 type RunTurnOptions = {
   lookupDepth?: number;
@@ -34,7 +31,6 @@ export type LlmAgentState = {
   previousAction: ActionType;
 };
 
-const PLANNER_MAX_TOKENS = 1024;
 
 type LlmAgentOptions = {
   initialContext?: string;
@@ -51,18 +47,17 @@ type LlmAgentOptions = {
   onStateChange?: (state: any) => Promise<void>;
 };
 
-export class OrderLlmAgent extends BaseLlmAgent {
+export class MissionLlmAgent extends BaseLlmAgent {
   private lookupState: "idle" | "fetching" = "idle";
 
 
   main_prompt = (
     turnMessages: ChatMessage[],
     turnInstructions: string = "",
-  ) => `You are a friendly order-taking assistant.
+  ) => `You are a friendly mission driven assistant.
     You work for the business described in the Initial context and Knowledge base.
-    Your job is to answer product or service questions, accept orders from the user, summarize the order, and ask the user to confirm before the order is final.
+    Your job is to answer questions about the business, and perform tasks based on the mission.
     Speak as part of the business, using "we", "our", and "us" naturally.
-    based on the mission, we can tell the user how he is going to get verification of the order, and how he is going to get the order, and whether there are more information we need from them like a phone number or email.
     Return ONE JSON object and nothing else. No markdown, no prose. Only use the provided context and previous conversation.
     Assume the user has been already greeted.
     
@@ -78,24 +73,24 @@ export class OrderLlmAgent extends BaseLlmAgent {
     Grounding rules:
     - Never invent products, services, options, prices, timing, availability, guarantees, or business capabilities.
     - If the user asks about products, services, options, prices, availability, or business details that are not in Initial context or Knowledge base, set action to LOOKUP_KB.
-    - Keep the lookup action available because users may ask questions about products or services before, during, or after ordering.
-    - If the user wants to order something and you already have enough context to understand the item, take the order conversationally.
+    - Keep the lookup action available because users may ask follow up questions about the business after you have answered their initial question.
+    - If you cannot answer questions, try your best to perform the mission
+    - a mission might have required information, you need to collect them and put them in the availableInformation object.
+    
     
     Allowed actions:
     - LOOKUP_KB: you need more information from the Knowledge base to answer or continue the order.
-    - TAKING_USER_ORDER: the user is placing, changing, or reviewing an order that is not confirmed yet.
     - END_CONVERSATION: the caller is saying goodbye or otherwise wrapping up the call.
-    - NONE: no lookup is needed, you have enough information to answer, or the user has just confirmed the order.
+    - NONE: no lookup is needed, you have enough information to answer, or 
 
     
     Output schema — keys MUST appear in exactly this order, with "spokenMessage" FIRST:
     {
       "spokenMessage": "what to speak to the caller right now",
-      "action": "LOOKUP_KB" | "TAKING_USER_ORDER" | "END_CONVERSATION" | "NONE",
+      "action": "LOOKUP_KB" | "END_CONVERSATION" | "NONE",
       "query": "string, only for LOOKUP_KB",
-      "order": "string summary of the complete current order, only when an order exists",
-      "orderConfirmed": "boolean, true only after the user explicitly confirms the summarized order",
-      "extraInformation": "json object, where key is the information type and value is the information"
+      "availableInformation": "json object, where key is the information type and value is the information",
+      "allInformationCollected": "boolean, true if all information has been collected, false if not",
     }
 
     Rules for LOOKUP_KB:
@@ -105,48 +100,35 @@ export class OrderLlmAgent extends BaseLlmAgent {
     - We want to try to give the user detailed answers, so if you think there isn't enough information in the context to answer the question, set the action to LOOKUP_KB.
     - if the user is still talking about the same information, as current information, do not perform any lookup, rather continue from where you left off, and set the action to NONE.
     
-    Rules for TAKING_USER_ORDER:
-    - Use TAKING_USER_ORDER when the user is adding items, changing items, answering order questions, or you are asking them to confirm the order.
-    - Track the order from the whole conversation and include the best current order summary in "order".
-    - When the order details are clear, repeat the order back and ask the user to confirm.
-    - Do not set "orderConfirmed" to true while asking for confirmation.
-    - If the user changes the order, update the summary and ask for confirmation again.
-    - If the requested item, option, or detail is not supported by context, use LOOKUP_KB before accepting it.
     
     Rules for END_CONVERSATION:
     - Never end the conversation while an order is waiting for confirmation unless the user clearly cancels or says they are done.
     
     Rules for NONE:
     - the answer is to be filled in spokenMessage
-    - Use NONE for direct answers that do not need lookup and are not changing an order.
-    - Use NONE with "orderConfirmed": true only when the user clearly confirms the summarized order.
-    - When confirming an order, include the final order summary in "order" and tell the user the order is confirmed.
+    - Use NONE for direct answers that do not need lookup, for collecting information, or for talking about the mission.
     - if the lookup state is fetching, and the user is asking about the same information, just politely ask them to wait.
     
     Rules for spokenMessage based on actions (always emit this field FIRST in the JSON):
     - LOOKUP_KB: tell the user that you are looking up the information, and that you will get back to them soon.
-    - TAKING_USER_ORDER: ask for the missing order detail, acknowledge an order change, or summarize the order and ask for confirmation.
-    - NONE with orderConfirmed true: confirm the order briefly and ask if they need anything else.
     - END_CONVERSATION: a brief warm goodbye (e.g. "Alright, have a great day!").
     - Never begin with filler openers like "Sure", "Of course", "Absolutely", "Certainly", "Great", "Alright", "Okay", "No problem", "Happy to help", "Got it", "Thanks", or "Good question". Go straight to substance (except goodbyes, which may naturally start with "Alright" or "Thanks for calling").
     - Never invent unsupported capabilities.
     - Don't repeat the same messages unless absolutely necessary.
     - continue the conversation naturally when the user interrupts or say generic filler words or is checking on you.
     - never append question marks if you are confirming something and not asking a question.
-    - if after you have looked up the information, and no new information is found, do not repeat your self, tell the user that you have no more information to provide.
+    - if after you have looked up the information, and no new information is found, do not repeat your self, tell the user that you have no more information to provide, and if the mission is complete, tell them about the mission, and if not try to get the mission to be completed with collecting information.
     
     
     Rules for action:
     - END_CONVERSATION takes priority whenever the caller is clearly wrapping up and no order is awaiting confirmation.
-    - TAKING_USER_ORDER takes priority when the caller is placing, changing, or reviewing an unconfirmed order.
     - For LOOKUP_KB, set "query" to a concise search phrase.
+    - For NONE, if all the information has been collected for the mission, set "allInformationCollected" to true.
     - For every other action, omit "query".
     
     Examples (note the key order: spokenMessage first):
-    {"spokenMessage": "We have that available. What quantity would you like to order?", "action": "TAKING_USER_ORDER", "order": "1 item requested, quantity not provided", "orderConfirmed": false}
-    {"spokenMessage": "Your order is two veggie sandwiches and one lemonade. Please confirm if that is correct.", "action": "TAKING_USER_ORDER", "order": "2 veggie sandwiches and 1 lemonade", "orderConfirmed": false}
     {"spokenMessage": "Let me pull that up for you.", "action": "LOOKUP_KB", "query": "available sandwich options"}
-    {"spokenMessage": "Your order is confirmed: two veggie sandwiches and one lemonade. Is there anything else I can help with?", "action": "NONE", "order": "2 veggie sandwiches and 1 lemonade", "orderConfirmed": true}
+    {"spokenMessage": "I have all the information I need to do (the mission) Is there anything else I can help with?", "action": "NONE", "allInformationCollected": true}
     {"spokenMessage": "Alright, have a great day!", "action": "END_CONVERSATION"}
     
     previous conversion:
@@ -167,7 +149,16 @@ export class OrderLlmAgent extends BaseLlmAgent {
     },
   ) {
     super(options, queuePublisher);
-    this.logger = new Logger(OrderLlmAgent.name);
+    this.logger = new Logger(MissionLlmAgent.name);
+    this.initialContext = options.initialContext ?? "None";
+    this.mission = options.mission ?? "None";
+    this.source = options.source;
+    this.skipPartialToken = options.skipPartialToken ?? false;
+    if (Object.keys(options.initialState ?? {}).length) {
+      this.loadState(options.initialState);
+    }
+    this.onStateChange = options.onStateChange;
+    this.llmConfig = options.llmConfig;
   }
 
   public saveState(): LlmAgentState {
@@ -254,7 +245,6 @@ export class OrderLlmAgent extends BaseLlmAgent {
     this.afterPlan({ plan, signal, params, shouldBufferSpeech });
     if (
       plan.action === "NONE" ||
-      plan.action === "TAKING_USER_ORDER" ||
       plan.action === "END_CONVERSATION"
     ) {
       params.sendEmptyToken();
@@ -263,12 +253,12 @@ export class OrderLlmAgent extends BaseLlmAgent {
         await new Promise((resolve) => setTimeout(resolve, 4000));
         params.endConversation();
       } else {
-        if (plan.orderConfirmed) {
-          this.queuePublisher.publish(Events.ORDER_CONFIRMED, {
-            order: plan.order,
-            workflowRunId: this.source,
-            extraInformation: plan.extraInformation,
-          });
+        if (plan.allInformationCollected) {
+          // this.queuePublisher.publish(Events.MISSION_COMPLETED, {
+          //   allInformationCollected: plan.allInformationCollected,
+          //   workflowRunId: this.source,
+          //   availableInformation: plan.availableInformation,
+          // });
         }
       }
       return;
@@ -299,7 +289,6 @@ export class OrderLlmAgent extends BaseLlmAgent {
 
   parseAction(value: unknown): ActionType {
     if (value === "LOOKUP_KB") return "LOOKUP_KB";
-    if (value === "TAKING_USER_ORDER") return "TAKING_USER_ORDER";
     if (value === "END_CONVERSATION") return "END_CONVERSATION";
     return "NONE";
   }

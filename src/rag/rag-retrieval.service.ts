@@ -59,7 +59,8 @@ export class RagRetrievalService {
         skipResourceId,
       ),
     ]);
-
+    console.log("vectorHits", vectorHits);
+    console.log("bm25Hits", bm25Hits);
     const fused = this.rrfFuse(vectorHits, bm25Hits);
     if (!fused.length) return [];
 
@@ -177,9 +178,14 @@ ${numbered}
 Respond ONLY with JSON of the form {"ranked": [n1, n2, ...]} using the 1-based indices above, in order of most useful first. No prose.`;
 
     try {
-      const raw = await completeUserPrompt(prompt, {
-        teamId: teamId,
+      const raw = await completeUserPrompt({
         maxTokens: 256,
+        apiUrl: process.env.LLM_API_URL,
+        apiKey: process.env.LLM_API_KEY,
+        model: process.env.LLM_MODEL,
+        messages: [
+          { role: "system", content: prompt },
+        ],
       });
       const parsed = this.parseRankedIndices(raw, candidates.length);
       if (!parsed.length) return candidates.slice(0, topK);

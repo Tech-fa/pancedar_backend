@@ -80,6 +80,7 @@ export class TwilioMediaGateway
             apiUrl: context?.apiUrl,
             apiKey: context?.apiKey,
             model: context?.model,
+            teamId: context?.teamId,
           },
         },
       );
@@ -94,6 +95,7 @@ export class TwilioMediaGateway
             apiUrl: context?.apiUrl,
             apiKey: context?.apiKey,
             model: context?.model,
+            teamId: context?.teamId,
           },
         },
       );

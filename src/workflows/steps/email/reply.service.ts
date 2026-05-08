@@ -104,7 +104,12 @@ Write only the reply body text (no subject line). Be helpful and professional.`;
 
     try {
       return (
-        await completeUserPrompt(prompt, { teamId })
+        await completeUserPrompt({
+          apiUrl: process.env.LLM_API_URL,
+          apiKey: process.env.LLM_API_KEY,
+          model: process.env.LLM_MODEL,
+          messages: [{ role: "system", content: prompt }],
+        })
       ).trim();
     } catch (error) {
       this.logger.error(

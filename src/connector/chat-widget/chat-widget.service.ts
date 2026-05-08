@@ -18,6 +18,7 @@ import { WorkflowRun } from "src/workflows/workflow-run.entity";
 import { WorkflowService } from "src/workflows/workflow.service";
 import { ChatMessageEntity, ChatMessageSentBy } from "./chat-message.entity";
 import {
+  ActionPerformedChatWidgetDto,
   ChatWidgetMessagesQueryDto,
   InitChatWidgetDto,
   InitChatWidgetResponse,
@@ -83,14 +84,54 @@ export class ChatWidgetService {
     ]);
 
     await this.cacheRunContext(workflowRun, teamConfig);
-    const establishConnectionStep = workflowRun.workflow?.steps?.find(
-      (step) => step.name === "Establish Connection",
-    );
+
     return {
       runId: workflowRun.id,
       websocketUrl: this.buildWebSocketUrl(workflowRun.id),
-      greetingMessage: workflowRun.context?.greetingMessage ?? "hello how can i help you today?",
+      greetingMessage:
+        workflowRun.workflow?.steps?.find(
+          (step) => step.name === "Establish Connection",
+        )?.values?.greetingMessage ?? "hello, how can i help you today?",
     };
+  }
+
+  async actionPerformed(
+    dto: ActionPerformedChatWidgetDto,
+    headers: {
+      signature?: string;
+      timestamp?: string;
+    },
+  ): Promise<void> {
+    const appName = dto.appName.trim();
+    const connector = await this.connectorService.findOneByPrimaryIdentifier(
+      appName,
+      "Chat Widget",
+    );
+    if (!connector) {
+      throw new NotFoundException("Chat widget connector not found");
+    }
+    await this.assertValidSignature({
+      signature: headers.signature,
+      timestamp: headers.timestamp,
+      secret: await decrypt(connector.credentials?.["Web App Secret"]),
+    });
+    const workflowRun = await this.workflowService.getWorkflowRunByContext({
+      connectorId: connector.id,
+      context: {
+        appName: dto.appName,
+        sessionId: dto.sessionId,
+      },
+    });
+    if (!workflowRun) {
+      throw new NotFoundException("Chat widget workflow run not found");
+    }
+    await this.workflowService.updateWorkflowRun(workflowRun.id, {
+      stepsContext: {
+        Chatting: {
+          actionInfo: dto.actionInfo,
+        },
+      },
+    });
   }
 
   async initWidget(dto: InitChatWidgetDto): Promise<InitChatWidgetResponse> {
@@ -108,7 +149,8 @@ export class ChatWidgetService {
       colorTheme: connector.credentials?.["Chat Widget Color"] ?? "",
       chatIcon: connector.credentials?.["Chat Icon"] ?? "",
       hideCircle: hideCircle === true || hideCircle === "true",
-      assistantName: connector.credentials?.["Assistant Name"] ?? "Chat Support",
+      assistantName:
+        connector.credentials?.["Assistant Name"] ?? "Chat Support",
       assistantIcon: connector.credentials?.["Assistant Icon"] ?? "",
     };
   }
@@ -142,10 +184,7 @@ export class ChatWidgetService {
       throw new BadRequestException("runId is required");
     }
     const run = await this.workflowService.findWorkflowRunById(runId);
-    if (
-      !run ||
-      run.workflow?.workflowType !== "tech-fa-chat-business-assistant"
-    ) {
+    if (!run) {
       throw new NotFoundException("Chat widget run not found");
     }
     return run;
@@ -220,10 +259,14 @@ export class ChatWidgetService {
       runId: run.id,
       appName: run.context?.appName,
       sessionId: run.context?.sessionId,
-      assistantMission: replyStep?.values?.assistantMission,
-      allowedActions: replyStep?.allowedActions,
-      teamId: run.workflow?.teamId,
-      llmAgent: teamConfig?.llmAgent ?? {},
+      linkType: replyStep?.values?.linkType,
+      linkAsk: replyStep?.values?.linkAsk,
+      linkDestination: replyStep?.values?.linkDestination,
+      link: replyStep?.values?.link,
+      greetingMessage: replyStep?.values?.greetingMessage,
+      teamId: teamConfig?.teamId,
+      beforeYouGo: replyStep?.values?.beforeYouGo,
+      llmAgent: teamConfig?.config?.llmAgent ?? {},
     };
     await this.cacheService.setData(
       `${CHAT_WIDGET_CACHE_PREFIX}_${run.id}`,

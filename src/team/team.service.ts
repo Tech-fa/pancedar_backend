@@ -295,7 +295,7 @@ export class TeamService {
     primaryIdentifier: string,
     connectorType: string,
     configName: string,
-  ): Promise<{ [key: string]: any }> {
+  ): Promise<{ teamId: string, config: { [key: string]: any } }> {
     const teamId = (
       await this.teamRepository.query(
         `select  team_id as id from connectors where primary_identifier = '${primaryIdentifier}' and connector_type_id = '${connectorType}'`,
@@ -305,7 +305,7 @@ export class TeamService {
       where: { teamId },
     });
     const conf = await this.decryptTeamConfig(config.config, configName);
-    return conf;
+    return { teamId, config: conf };
   }
 
   async getDecryptedConfigByTeamId(

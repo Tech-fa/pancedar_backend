@@ -11,12 +11,10 @@ import { completeUserPrompt } from "src/llm-integration/llm-stream";
 export class CategorizeEmailService {
   private readonly logger = new Logger(CategorizeEmailService.name);
 
-  constructor(
-    private readonly usersService: UsersService,
-  ) {}
+  constructor(private readonly usersService: UsersService) {}
 
   async runStep(context: CategorizeStepContext): Promise<EmailAnalysisResult> {
-    const emailId =  context.incomingEmailId;
+    const emailId = context.incomingEmailId;
     if (!emailId) {
       throw new Error(
         "Categorize step requires userIncomingEmail or incomingEmailId in context",
@@ -66,7 +64,12 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no code
   "questions": "array of questions or null if no questions",
 }`;
 
-    const responseText = await completeUserPrompt(prompt,{teamId: context.teamId});
+    const responseText = await completeUserPrompt({
+      apiUrl: process.env.LLM_API_URL,
+      apiKey: process.env.LLM_API_KEY,
+      model: process.env.LLM_MODEL,
+      messages: [{ role: "system", content: prompt }],
+    });
     return this.parseCategorizationResponse(responseText, categories);
   }
 
