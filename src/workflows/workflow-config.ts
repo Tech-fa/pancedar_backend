@@ -14,6 +14,7 @@ export enum WorkflowType {
   PHONE_ORDERING_ASSISTANT = "phone-ordering-assistant",
   TECH_FA_CHAT_BUSINESS_ASSISTANT = "tech-fa-chat-business-assistant",
   BUSINESS_ASSISTANT_LINK_BOOKING = "business-assistant-link-booking",
+  AUTOTRADER_NOTIFIER = "autotrader-notifier",
 }
 
 export const workflowConfigs = {
@@ -57,6 +58,19 @@ export const workflowConfigs = {
     scraping: {
       linkType: "kijiji",
       stepName: "search-kijiji",
+      urlField: "searchLink",
+    },
+  },
+  "autotrader-notifier": {
+    description:
+      "Autotrader notifier that notifies you when new items are posted on Autotrader.",
+    steps: ["search-autotrader", "notify"],
+    connectorsNeeded: ["Kijiji"],
+    allowMultiple: true,
+    entitiesNeeded: ["autotrader_links"],
+    scraping: {
+      linkType: "autotrader",
+      stepName: "search-autotrader",
       urlField: "searchLink",
     },
   },
@@ -177,6 +191,17 @@ export const workflowStepConfigs = {
   },
   "search-kijiji": {
     description: "Search Kijiji for items.",
+    fields: [
+      {
+        label: "Search Link",
+        name: "searchLink",
+        type: "text",
+        required: true,
+      },
+    ],
+  },
+  "search-autotrader": {
+    description: "Search Autotrader for items.",
     fields: [
       {
         label: "Search Link",

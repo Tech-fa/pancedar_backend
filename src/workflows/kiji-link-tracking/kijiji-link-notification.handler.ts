@@ -14,6 +14,7 @@ interface NewKijijiItemPayload {
   workflowId?: string;
   links: string[];
   collectedAt: string;
+  linkType: string;
 }
 
 @Injectable()
@@ -68,44 +69,47 @@ export class KijijiLinkNotificationHandler {
     const message = extractMessage(body);
     const username = message?.from?.username;
 
-    const workflow = await this.workflowService.findWorkflowByPrimaryIdentifier(
+    const workflows = await this.workflowService.findWorkflowsByPrimaryIdentifier(
       username,
-      "kijiji",
-      "kijiji-notifier",
+      ["kijiji", "autotrader"],
     );
-    let workflowRun = await this.workflowService.findWorkgetWorkflowRunByContextWorkflowId(
-      {
-        workflowId: workflow.id,
-        context: {
-          chatId: message?.chat?.id,
-          username: username,
-          primaryIdentifier: username,
-        },
-      },
-    );
-    if (!workflowRun) {
-      workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
+    for (const workflow of workflows) {
+      let workflowRun = await this.workflowService.findWorkgetWorkflowRunByContextWorkflowId(
         {
-          primaryIdentifier: username,
-          workflowName: "kijiji-notifier",
-          connectorTypeId: "kijiji",
-          injectContext: (workflow: Workflow) => {
-            return {
-              chatId: message?.chat?.id,
-              username: username,
-            };
+          workflowId: workflow.id,
+          context: {
+            chatId: message?.chat?.id,
+            username: username,
+            primaryIdentifier: username,
           },
-          displayContext: {},
         },
       );
+      if (!workflowRun) {
+        workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
+          {
+            primaryIdentifier: username,
+            workflowName: workflow.workflowType,
+            connectorTypeId: workflow.linkedConnectors[0].connectorTypeId,
+            injectContext: (workflow: Workflow) => {
+              return {
+                chatId: message?.chat?.id,
+                username: username,
+              };
+            },
+            displayContext: {},
+          },
+        );
+      }
+      this.logger.log("workflowRun found or created ", workflowRun.id);
     }
-    this.logger.log("workflowRun found or created ", workflowRun.id);
   }
 
   private formatMessage(payload: NewKijijiItemPayload): string {
     const linkText = payload.links.map((link) => `- ${link}`).join("\n");
     return [
-      `New Kijiji item${payload.links.length === 1 ? "" : "s"} found`,
+      `New ${payload.linkType} item${
+        payload.links.length === 1 ? "" : "s"
+      } found`,
       linkText,
     ].join("\n");
   }

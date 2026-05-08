@@ -18,6 +18,9 @@ export class KijijiLink {
   @Prop({ required: true, default: Date.now })
   collectedAt: Date;
 
+  @Prop({ required: true, trim: true })
+  linkType: string;
+
   @Prop({ required: true, default: Date.now })
   lastSeenAt: Date;
 }

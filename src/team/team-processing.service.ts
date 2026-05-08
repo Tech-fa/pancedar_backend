@@ -88,6 +88,7 @@ export class TeamProcessingService {
       workflowId,
       teamId,
     );
+    const linkType = workflowConfigs[workflow.workflowType]?.scraping?.linkType;
     this.assertWorkflowSupportsScraping(workflow.workflowType);
 
     const collectedLinks = this.normalizeLinks(body.links);
@@ -112,6 +113,7 @@ export class TeamProcessingService {
           link,
           collectedAt: now,
           lastSeenAt: now,
+          linkType,
         })),
         { ordered: false },
       );
@@ -119,6 +121,7 @@ export class TeamProcessingService {
         workflowId,
         links: insertedLinks,
         collectedAt: now.toISOString(),
+        linkType,
       });
     }
   }

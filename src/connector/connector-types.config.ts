@@ -166,6 +166,7 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
         isPrimaryIdentifier: true,
       },
     ],
-    multiLink: false,
+    multiLink: true,
   },
+
 ];
