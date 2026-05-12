@@ -16,6 +16,7 @@ import { TeamProcessesController } from './team-processes.controller';
 import { TeamProcessingService } from './team-processing.service';
 import { TeamService } from './team.service';
 import { PermissionModule } from '../permissions/permission.module';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { PermissionModule } from '../permissions/permission.module';
     PermissionModule,
     ConnectorModule,
     QueueModule,
+    CommonModule,
   ],
   providers: [TeamService, WorkflowService, TeamProcessingService],
   controllers: [TeamController, TeamProcessesController],

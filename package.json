@@ -44,6 +44,7 @@
     "create:login:dist": "node ./dist/create-login.js"
   },
   "dependencies": {
+    "@aws-sdk/client-lightsail": "^3.1045.0",
     "@aws-sdk/client-s3": "^3.911.0",
     "@aws-sdk/lib-storage": "^3.777.0",
     "@aws-sdk/s3-request-presigner": "^3.911.0",

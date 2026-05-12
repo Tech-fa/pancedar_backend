@@ -39,6 +39,9 @@ export class Workflow {
   @Column({ name: "context", type: "json", nullable: true })
   context: Record<string, any>;
 
+  @Column({ name: "light_sail_instance_id", type: "varchar", length: 255, nullable: true })
+  lightSailInstanceId: string | null;
+
   @Column({
     name: "created_at",
     type: "bigint",

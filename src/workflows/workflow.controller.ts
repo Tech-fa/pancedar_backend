@@ -29,6 +29,17 @@ export class WorkflowController {
 
   constructor(private readonly workflowService: WorkflowService) {}
 
+  @Post('deploy-all-scrapers')
+  @hasPermission({ subject: workflowPermission.subject, actions: ["deploy"] })
+  async deployAllScrapers(@Req() req, @Res() res: Response) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.deployAllScrapers(),
+      res,
+      "All scrapers deployed successfully",
+    );
+  }
+
   @Get("available")
   @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
   async findAvailableWorkflows(@Res() res: Response) {

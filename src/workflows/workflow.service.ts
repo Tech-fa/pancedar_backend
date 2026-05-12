@@ -25,6 +25,8 @@ import { WorkflowRun } from "./workflow-run.entity";
 import { ConnectorService } from "../connector/connector.service";
 import { PaginatedResponse } from "../common/pagination.dto";
 import { ConnectorStatus } from "src/connector/dto";
+import { LightsailService } from "../common/lightsail.service";
+import { TeamService } from "../team/team.service";
 
 @Injectable()
 export class WorkflowService {
@@ -35,8 +37,28 @@ export class WorkflowService {
     private readonly workflowRepo: Repository<Workflow>,
     @InjectRepository(WorkflowRun)
     private readonly workflowRunRepo: Repository<WorkflowRun>,
+    private readonly teamService: TeamService,
     private readonly connectorService: ConnectorService,
+    private readonly lightsailService: LightsailService,
   ) {}
+
+  async deployAllScrapers(): Promise<void> {
+    const workflows = await this.workflowRepo.find();
+    for (const workflow of workflows) {
+      if (workflow.lightSailInstanceId) {
+        await this.lightsailService.runDockerComposeRefreshOnInstance(
+          workflow.lightSailInstanceId,
+          {
+            workflowId: workflow.id,
+            workflowType: workflow.workflowType,
+            teamId: workflow.teamId,
+            linkType: workflowConfigs[workflow.workflowType].scraping?.linkType,
+            scraperSecret: await this.getScraperSecret(workflow.teamId),
+          },
+        );
+      }
+    }
+  }
 
   async findAll(
     user: UserRequest,
@@ -447,9 +469,33 @@ export class WorkflowService {
 
       workflow.linkedConnectors = connectors;
     }
+    if (
+      workflow.linkedConnectors?.length &&
+      !workflow.lightSailInstanceId &&
+      config.scraping?.linkType 
+      // process.env.NODE_ENV === "production"
+    ) {
+      workflow.lightSailInstanceId = await this.lightsailService.createWorkflowScraperInstance(
+        {
+          workflowId: workflow.id,
+          workflowType: workflow.workflowType,
+          teamId: workflow.teamId,
+          linkType: config.scraping.linkType,
+          scraperSecret: await this.getScraperSecret(workflow.teamId),
+        },
+      );
+    }
 
     workflow.updatedAt = Date.now();
     return this.workflowRepo.save(workflow);
+  }
+
+  private async getScraperSecret(teamId: string): Promise<string> {
+    const teamConfig = await this.teamService.getDecryptedConfigByTeamId(
+      teamId,
+      "scrapers",
+    );
+    return teamConfig.secret;
   }
 
   async findWorkflowsByPrimaryIdentifier(
@@ -599,11 +645,18 @@ export class WorkflowService {
   }
 
   async delete(user: UserRequest, id: string): Promise<void> {
+    const workflow = await this.workflowRepo.findOne({
+      where: { id, teamId: user.teamId },
+    });
+    if (!workflow) {
+      throw new NotFoundException("Workflow not found");
+    }
+
+    if (workflow.lightSailInstanceId) {
+      await this.lightsailService.deleteInstance(workflow.lightSailInstanceId);
+    }
+
     await this.workflowRunRepo.delete({ workflowId: id });
-    await this.workflowRepo.remove(
-      await this.workflowRepo.findOne({
-        where: { id, teamId: user.teamId },
-      }),
-    );
+    await this.workflowRepo.remove(workflow);
   }
 }

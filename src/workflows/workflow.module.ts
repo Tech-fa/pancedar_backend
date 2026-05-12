@@ -9,6 +9,9 @@ import { WorkflowRun } from "./workflow-run.entity";
 import { UsersModule } from "../user/user.module";
 import { ConnectorModule } from "../connector/connector.module";
 import { WorkflowRunHandler } from "./workflow-run-handler.service";
+import { CommonModule } from "../common/common.module";
+import { TeamConfig } from "../team/team.entity";
+import { TeamModule } from "../team/team.module";
 
 @Module({
   imports: [
@@ -16,6 +19,8 @@ import { WorkflowRunHandler } from "./workflow-run-handler.service";
     QueueModule,
     UsersModule,
     ConnectorModule,
+    CommonModule,
+    TeamModule,
   ],
   providers: [WorkflowService, WorkflowQueueHandler, WorkflowRunHandler],
   controllers: [WorkflowController],

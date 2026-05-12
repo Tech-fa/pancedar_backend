@@ -87,6 +87,19 @@ export const workflowConfigs = {
       urlField: "searchLink",
     },
   },
+  "cargurus-notifier": {
+    description:
+      "Cargurus notifier that notifies you when new items are posted on Cargurus.",
+    steps: ["search-cargurus", "notify"],
+    connectorsNeeded: ["Kijiji"],
+    allowMultiple: true,
+    entitiesNeeded: ["kijiji_links"],
+    scraping: {
+      linkType: "cargurus",
+      stepName: "search-cargurus",
+      urlField: "searchLink",
+    },
+  },
   "phone-ordering-assistant": {
     description:
       "Phone ordering assistant that orders products or services over the phone.",
@@ -227,12 +240,22 @@ export const workflowStepConfigs = {
         name: "fallbackZip",
         type: "text",
         required: true,
-      }
+      },
     ],
-
   },
   "search-facebook": {
     description: "Search Facebook for items.",
+    fields: [
+      {
+        label: "Search Link",
+        name: "searchLink",
+        type: "text",
+        required: true,
+      },
+    ],
+  },
+  "search-cargurus": {
+    description: "Search CarGurus for items.",
     fields: [
       {
         label: "Search Link",

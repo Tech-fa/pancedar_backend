@@ -2,19 +2,19 @@ import {
   BadRequestException,
   Injectable,
   UnauthorizedException,
-} from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { createHmac, timingSafeEqual } from 'crypto';
-import { Model } from 'mongoose';
-import { Events } from '../queue/queue-constants';
-import { QueuePublisher } from '../queue/queue.publisher';
-import { workflowConfigs } from '../workflows/workflow-config';
-import { WorkflowService } from '../workflows/workflow.service';
+} from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { createHmac, timingSafeEqual } from "crypto";
+import { Model } from "mongoose";
+import { Events } from "../queue/queue-constants";
+import { QueuePublisher } from "../queue/queue.publisher";
+import { workflowConfigs } from "../workflows/workflow-config";
+import { WorkflowService } from "../workflows/workflow.service";
 import {
   KijijiLink,
   KijijiLinkDocument,
-} from '../workflows/kiji-link-tracking/schemas/kijiji-link.schema';
-import { TeamService } from './team.service';
+} from "../workflows/kiji-link-tracking/schemas/kijiji-link.schema";
+import { TeamService } from "./team.service";
 
 const TEAM_PROCESS_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
 
@@ -44,7 +44,10 @@ export class TeamProcessingService {
     private readonly kijijiLinkModel: Model<KijijiLinkDocument>,
   ) {}
 
-  async getLinkTrackingWorkflows(headers: TeamProcessAuthHeaders) {
+  async getLinkTrackingWorkflows(
+    headers: TeamProcessAuthHeaders,
+    type?: string,
+  ) {
     const teamId = await this.assertValidTeamProcessRequest(headers);
     const scrapingEntries = this.getScrapingWorkflowEntries();
     const workflows = await this.workflowService.findByWorkflowTypesForTeam(
@@ -76,7 +79,13 @@ export class TeamProcessingService {
           steps: workflow.steps,
         };
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((workflow) => {
+        if (!type) {
+          return true;
+        }
+        return workflow?.linkType === type;
+      });
   }
 
   async processLinks(
@@ -105,7 +114,6 @@ export class TeamProcessingService {
     const insertedLinks = collectedLinks.filter(
       (link) => !knownLinkSet.has(link),
     );
-
     const now = new Date();
     if (insertedLinks.length > 0) {
       await this.kijijiLinkModel.insertMany(
@@ -133,13 +141,13 @@ export class TeamProcessingService {
     signature,
   }: TeamProcessAuthHeaders): Promise<string> {
     if (!teamId) {
-      throw new UnauthorizedException('Missing team process team id');
+      throw new UnauthorizedException("Missing team process team id");
     }
     if (!timestamp) {
-      throw new UnauthorizedException('Missing team process timestamp');
+      throw new UnauthorizedException("Missing team process timestamp");
     }
     if (!signature) {
-      throw new UnauthorizedException('Missing team process signature');
+      throw new UnauthorizedException("Missing team process signature");
     }
 
     const parsedTimestamp = Number(timestamp);
@@ -151,20 +159,20 @@ export class TeamProcessingService {
       !Number.isFinite(parsedTimestamp) ||
       Math.abs(Date.now() - parsedTimestamp) > maxAgeMs
     ) {
-      throw new UnauthorizedException('Expired team process signature');
+      throw new UnauthorizedException("Expired team process signature");
     }
 
     const scraperConfig = await this.teamService.getDecryptedConfigByTeamId(
       teamId,
-      'scrapers',
+      "scrapers",
     );
     if (!scraperConfig?.secret) {
-      throw new UnauthorizedException('Team scraper secret is not configured');
+      throw new UnauthorizedException("Team scraper secret is not configured");
     }
 
-    const expected = createHmac('sha256', scraperConfig.secret)
+    const expected = createHmac("sha256", scraperConfig.secret)
       .update(this.buildSignaturePayload(teamId, timestamp))
-      .digest('hex');
+      .digest("hex");
     const expectedBuffer = Buffer.from(expected);
     const signatureBuffer = Buffer.from(signature);
 
@@ -172,7 +180,7 @@ export class TeamProcessingService {
       expectedBuffer.length !== signatureBuffer.length ||
       !timingSafeEqual(expectedBuffer, signatureBuffer)
     ) {
-      throw new UnauthorizedException('Invalid team process signature');
+      throw new UnauthorizedException("Invalid team process signature");
     }
 
     return teamId;
@@ -180,7 +188,7 @@ export class TeamProcessingService {
 
   private assertWorkflowSupportsScraping(workflowType: string): void {
     if (!this.getScrapingConfig(workflowType)) {
-      throw new BadRequestException('Workflow does not support scraping');
+      throw new BadRequestException("Workflow does not support scraping");
     }
   }
 
@@ -198,7 +206,7 @@ export class TeamProcessingService {
     config = workflowConfigs[workflowType],
   ): ScrapingConfig | null {
     const scraping = config?.scraping;
-    if (!scraping || typeof scraping !== 'object') {
+    if (!scraping || typeof scraping !== "object") {
       return null;
     }
 
@@ -211,12 +219,12 @@ export class TeamProcessingService {
 
   private normalizeLinks(links: unknown): string[] {
     if (!Array.isArray(links)) {
-      throw new BadRequestException('links must be an array');
+      throw new BadRequestException("links must be an array");
     }
 
     return [
       ...new Set(
-        links.filter((link): link is string => typeof link === 'string'),
+        links.filter((link): link is string => typeof link === "string"),
       ),
     ];
   }
