@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     curl \
     iproute2 \
+    openssh-client \
   && npm install -g npm@^11.10.2 \
   && rm -rf /var/lib/apt/lists/*
 
