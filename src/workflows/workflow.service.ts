@@ -472,8 +472,8 @@ export class WorkflowService {
     if (
       workflow.linkedConnectors?.length &&
       !workflow.lightSailInstanceId &&
-      config.scraping?.linkType 
-      // process.env.NODE_ENV === "production"
+      config.scraping?.linkType && 
+      process.env.NODE_ENV === "production"
     ) {
       workflow.lightSailInstanceId = await this.lightsailService.createWorkflowScraperInstance(
         {
