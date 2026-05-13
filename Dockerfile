@@ -49,12 +49,18 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV HF_HOME=/app/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/app/.cache/transformers
 
+# Default location for the persistent puppeteer-real-browser profile. Mount a
+# volume here (e.g. `-v carleton-profile:/app/.cache/real-browser`) so Google
+# reCAPTCHA trust cookies survive container restarts. The service falls back
+# to an ephemeral profile if this env var is unset or the path is unwritable.
+ENV CARLETON_REAL_BROWSER_USER_DATA_DIR=/app/.cache/real-browser
+
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
 
-RUN mkdir -p /app/.cache/huggingface /app/.cache/transformers
+RUN mkdir -p /app/.cache/huggingface /app/.cache/transformers /app/.cache/real-browser
 
 EXPOSE 3000
 CMD ["node", "dist/main"]

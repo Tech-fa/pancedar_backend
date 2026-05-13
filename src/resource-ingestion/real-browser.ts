@@ -8,7 +8,11 @@ import type { Browser, ElementHandle, Page } from "rebrowser-puppeteer-core";
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const CARLETON_PARKING_URL = "https://carletonparking.com";
-const CARLETON_MAX_REGISTRATION_ATTEMPTS = 3;
+const CARLETON_MAX_REGISTRATION_ATTEMPTS = 5;
+// Visiting Google before the Carleton form lets Google's invisible reCAPTCHA
+// client set its trust cookies (NID, __Secure-…) against this profile, which
+// is the single biggest free score boost on datacenter/cold-start IPs.
+const PREWARM_URL = "https://www.google.com/";
 
 export type CarletonParkingRegistrationInput = {
   address: string;
@@ -73,6 +77,8 @@ export class RealBrowserService {
     );
     let browser: Browser | null = null;
     try {
+      const userDataDir = await this.resolveUserDataDir();
+
       const { browser: b, page } = await connect({
         headless: process.env.HEADLESS === "true",
         args: getPuppeteerArgs(),
@@ -80,6 +86,11 @@ export class RealBrowserService {
           ...(process.env.PUPPETEER_EXECUTABLE_PATH
             ? { chromePath: process.env.PUPPETEER_EXECUTABLE_PATH }
             : {}),
+          // Persistent profile (when configured) lets Google reCAPTCHA cookies
+          // accumulated by previous runs carry over, which materially raises
+          // the score on a datacenter IP where every cold-start session would
+          // otherwise score too low to pass server-side verification.
+          ...(userDataDir ? { userDataDir } : {}),
         },
         proxy: getProxyConfig(),
         turnstile: true,
@@ -98,6 +109,8 @@ export class RealBrowserService {
       // verification failures that surface as 500s on this site.
 
       this.attachNetworkDebugLogging(page);
+
+      await this.prewarmGoogle(page);
 
       await page.goto(CARLETON_PARKING_URL, {
         waitUntil: "networkidle2",
@@ -174,6 +187,70 @@ export class RealBrowserService {
 
   private async humanPause(minMs: number, maxMs: number): Promise<void> {
     await this.delay(this.randomInt(minMs, maxMs));
+  }
+
+  /**
+   * Resolves and (lazily) ensures the persistent Chrome user-data-dir for the
+   * real browser. Configured via CARLETON_REAL_BROWSER_USER_DATA_DIR. When
+   * unset, returns undefined and puppeteer-real-browser uses a fresh temp
+   * profile per run (the previous behaviour).
+   *
+   * In Docker, point this at a path on a mounted volume so Google reCAPTCHA
+   * trust cookies survive container restarts.
+   */
+  private async resolveUserDataDir(): Promise<string | undefined> {
+    const configured = process.env.CARLETON_REAL_BROWSER_USER_DATA_DIR?.trim();
+    if (!configured) {
+      return undefined;
+    }
+    try {
+      await fs.mkdir(configured, { recursive: true });
+      this.logger.log(`[real-browser] using persistent profile at ${configured}`);
+      return configured;
+    } catch (e) {
+      this.logger.warn(
+        `[real-browser] could not create user-data-dir ${configured}: ${(e as Error).message}; falling back to ephemeral profile`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Visit google.com briefly so Google's invisible reCAPTCHA client can set
+   * its trust cookies against this Chrome profile. Doing this once at the
+   * start of a flow can be the difference between a 500 and a 200 on a fresh
+   * datacenter-IP session, because reCAPTCHA's score model leans heavily on
+   * "is this profile a returning Google user". Failures are non-fatal — if
+   * the warmup itself fails we just continue on to the form.
+   */
+  private async prewarmGoogle(page: Page): Promise<void> {
+    try {
+      await page.goto(PREWARM_URL, {
+        waitUntil: "networkidle2",
+        timeout: NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(400, 900);
+
+      // A few human-ish mouse movements; reCAPTCHA also looks at pointer
+      // entropy when scoring the session.
+      const viewport = await page
+        .evaluate(() => ({
+          w: window.innerWidth || 1280,
+          h: window.innerHeight || 720,
+        }))
+        .catch(() => ({ w: 1280, h: 720 }));
+      for (let i = 0; i < 3; i++) {
+        const x = this.randomInt(50, Math.max(100, viewport.w - 50));
+        const y = this.randomInt(50, Math.max(100, viewport.h - 50));
+        await page.mouse.move(x, y, { steps: this.randomInt(8, 18) });
+        await this.humanPause(120, 350);
+      }
+      this.logger.log("[real-browser] prewarm visit to google.com complete");
+    } catch (e) {
+      this.logger.warn(
+        `[real-browser] google.com prewarm failed (continuing): ${(e as Error).message}`,
+      );
+    }
   }
 
   private async typeTextHumanPage(page: Page, text: string): Promise<void> {
