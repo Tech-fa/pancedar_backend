@@ -253,6 +253,7 @@ export const workflowStepConfigs = {
   "register-car": {
     description: "Register a car with the carleton parking assistant.",
     fields: [
+      { label: "chatId", name: "chatId", type: "number", required: true },
       {
         label: "Cars",
         name: "cars",

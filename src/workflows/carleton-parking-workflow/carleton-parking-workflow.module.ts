@@ -4,6 +4,7 @@ import { TeamModule } from "src/team/team.module";
 import { TelegramModule } from "src/connector/telegram/telegram.module";
 import { registerWebhook } from "src/connector/telegram/telegram-util";
 import { WorkflowModule } from "../workflow.module";
+import { CarletonParkingReminderCron } from "./carleton-parking-reminder.cron";
 import { CarletonParkingWorkflowController } from "./carleton-parking-workflow.controller";
 import { CarletonParkingWebhookHandler } from "./carleton-parking-webhook.handler";
 import { CarletonParkingWorkflowService } from "./carleton-parking-workflow.service";
@@ -16,7 +17,11 @@ import { CarletonParkingWorkflowService } from "./carleton-parking-workflow.serv
     TeamModule,
   ],
   controllers: [CarletonParkingWorkflowController],
-  providers: [CarletonParkingWebhookHandler, CarletonParkingWorkflowService],
+  providers: [
+    CarletonParkingWebhookHandler,
+    CarletonParkingWorkflowService,
+    CarletonParkingReminderCron,
+  ],
   exports: [CarletonParkingWorkflowService],
 })
 export class CarletonParkingWorkflowModule implements OnModuleInit {

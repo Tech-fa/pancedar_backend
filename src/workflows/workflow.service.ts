@@ -119,6 +119,12 @@ export class WorkflowService {
     });
   }
 
+  async findAllByWorkflowType(workflowType: string): Promise<Workflow[]> {
+    return this.workflowRepo.find({
+      where: { workflowType },
+    });
+  }
+
   async findAvailableWorkflows(): Promise<
     {
       name: string;
