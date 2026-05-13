@@ -22,12 +22,19 @@ RUN npm run build \
 
 FROM node:24-bookworm-slim AS production
 
-# Chromium for Puppeteer (browser.service); libgomp1 helps @xenova/transformers / onnxruntime.
+# Chromium for Puppeteer (browser.service AND resource-ingestion/real-browser).
+# - xvfb / xauth: puppeteer-real-browser drives a real (non-headless) Chrome and
+#   needs a virtual X display on Linux; it spawns Xvfb itself when the flow runs.
+#   The Carleton parking workflow only sometimes runs, but installing these is
+#   cheap and lets the rest of the app stay untouched when it does.
+# - libgomp1 helps @xenova/transformers / onnxruntime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     chromium \
     fonts-liberation \
     libgomp1 \
+    xvfb \
+    xauth \
     curl \
     iproute2 \
     openssh-client \

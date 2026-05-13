@@ -192,6 +192,7 @@ export class WorkflowService {
       .createQueryBuilder("workflow_run")
       .innerJoinAndSelect("workflow_run.workflow", "workflow")
       .andWhere("workflow.id = :workflowId", { workflowId })
+      .andWhere("workflow_run.status = :status", { status: WorkflowRunStatus.PENDING })
       .andWhere(
         "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
         { context: JSON.stringify(context) },

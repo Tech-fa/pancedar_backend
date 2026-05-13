@@ -155,6 +155,23 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
     multiLink: false,
   },
   {
+    name: "Telegram Car Agent",
+    serviceName: "telegram",
+    description:
+      "Telegram bot for Carleton parking registration and related messages.",
+    fields: [
+      {
+        name: "Telegram Username",
+        type: "text",
+        required: true,
+        isPrimaryIdentifier: true,
+      },
+     
+    ],
+    configureQueue: Events.CONFIGURE_TELEGRAM,
+    multiLink: false,
+  },
+  {
     name: "Kijiji",
     serviceName: "kijiji",
     description: "Kijiji search connector for searching for items on Kijiji.",

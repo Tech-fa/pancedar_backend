@@ -18,7 +18,7 @@ export class BrowserService {
   async extractTextFromUrl(url: string): Promise<string> {
     let browser: Browser | null = null;
     try {
-       browser = await puppeteer.launch({
+      browser = await puppeteer.launch({
         headless: true,
         args: PUPPETEER_ARGS,
         ...(process.env.PUPPETEER_EXECUTABLE_PATH

@@ -33,6 +33,7 @@ import { GoogleBusinessReviewsModule } from './connector/google-business-reviews
 import { WhatsAppModule } from './connector/whatsapp/whatsapp.module';
 import { GoogleAccountsModule } from './google-accounts/google-accounts.module';
 import { KijijiLinkTrackingModule } from './workflows/kiji-link-tracking/kijiji-link-tracking.module';
+import { CarletonParkingWorkflowModule } from './workflows/carleton-parking-workflow/carleton-parking-workflow.module';
 import { ChatWidgetModule } from './connector/chat-widget/chat-widget.module';
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { ChatWidgetModule } from './connector/chat-widget/chat-widget.module';
     AgentCommunicationModule,
     GoogleAccountsModule,
     KijijiLinkTrackingModule,
+    CarletonParkingWorkflowModule,
     ChatWidgetModule,
   ],
   controllers: [AppController],

@@ -1,11 +1,11 @@
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import axios from "axios";
+import { readFile } from "fs/promises";
 import {
   TelegramMessageDto,
   TelegramWebhookRegistrationResult,
   TelegramWebhookUpdateDto,
 } from "./dto";
-import { config } from "process";
 import { Request } from "express";
 import { timingSafeEqual } from "crypto";
 
@@ -99,7 +99,6 @@ export async function sendMessage(
   if (options.replyToMessageId !== undefined) {
     body.reply_to_message_id = options.replyToMessageId;
   }
-  console.log("calling here");
   try {
     const { data } = await axios.post<{
       ok: boolean;
@@ -117,6 +116,36 @@ export async function sendMessage(
     console.log(error);
     throw new BadRequestException(
       error?.response?.data?.description ?? "Telegram sendMessage failed",
+    );
+  }
+}
+
+export async function sendPhoto(
+  chatId: string | number,
+  filePath: string,
+  options: TelegramSendMessageOptions,
+): Promise<void> {
+  const buffer = await readFile(filePath);
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("photo", new Blob([buffer]), "screenshot.png");
+
+  try {
+    const { data } = await axios.post<{
+      ok: boolean;
+      description?: string;
+    }>(`https://api.telegram.org/bot${options.botToken}/sendPhoto`, form);
+
+    if (!data.ok) {
+      throw new BadRequestException(
+        data.description ?? "Telegram sendPhoto failed",
+      );
+    }
+  } catch (error) {
+    throw new BadRequestException(
+      (error as any)?.response?.data?.description ??
+        (error as Error)?.message ??
+        "Telegram sendPhoto failed",
     );
   }
 }

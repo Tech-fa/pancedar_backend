@@ -4,7 +4,6 @@ import {
   Index,
   JoinTable,
   ManyToMany,
-  OneToMany,
   PrimaryGeneratedColumn,
 } from "typeorm";
 import { Events } from "../queue/queue-constants";

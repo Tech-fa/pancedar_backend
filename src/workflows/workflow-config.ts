@@ -100,6 +100,13 @@ export const workflowConfigs = {
       urlField: "searchLink",
     },
   },
+  "carleton-parking": {
+    description: "Carleton parking assistant that registers my car",
+    steps: ["register-car"],
+    connectorsNeeded: ["Telegram Car Agent"],
+    allowMultiple: false,
+    entitiesNeeded: [],
+  },
   "phone-ordering-assistant": {
     description:
       "Phone ordering assistant that orders products or services over the phone.",
@@ -240,6 +247,63 @@ export const workflowStepConfigs = {
         name: "fallbackZip",
         type: "text",
         required: true,
+      },
+    ],
+  },
+  "register-car": {
+    description: "Register a car with the carleton parking assistant.",
+    fields: [
+      {
+        label: "Cars",
+        name: "cars",
+        type: "array",
+        required: true,
+        items: {
+          type: "json",
+          fields: [
+            {
+              label: "Car Name",
+              name: "carName",
+              type: "string",
+              required: true,
+            },
+            {
+              label: "License Plate",
+              name: "licensePlate",
+              type: "string",
+              required: true,
+            },
+          ],
+        },
+      },
+      {
+        label: "Locations",
+        name: "locations",
+        type: "array",
+        required: true,
+        items: {
+          type: "json",
+          fields: [
+            {
+              label: "Location Name",
+              name: "locationName",
+              type: "string",
+              required: true,
+            },
+            {
+              label: "Location Address",
+              name: "locationAddress",
+              type: "string",
+              required: true,
+            },
+            {
+              label: "Unit Number",
+              name: "unitNumber",
+              type: "string",
+              required: true,
+            },
+          ],
+        },
       },
     ],
   },
