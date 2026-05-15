@@ -42,14 +42,17 @@ export class GoogleBusinessScraperController {
     @Req() req,
     @Query("workflowRunId") workflowRunId: string | undefined,
     @Query("limit") limit: string,
+    @Query("page") page: string,
     @Res() res: Response,
   ) {
     const n = Number(limit);
+    const p = Number(page);
     return formatResponse(
       this.logger,
       this.scraperService.findFlaggedPagesForTeam(
         req.user.teamId,
         Number.isFinite(n) ? n : undefined,
+        Number.isFinite(p) ? p : undefined,
         workflowRunId,
       ),
       res,

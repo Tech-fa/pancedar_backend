@@ -3,9 +3,11 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from "typeorm";
 import { WorkflowRun } from "../workflow-run.entity";
+import { GoogleFlaggedPage } from "./google-flagged-page.entity";
 
 /** One row per scraped site root (normalized URL) within a workflow run; contact fields from landing + contact-style pages. */
 @Entity("google_root_websites")
@@ -48,4 +50,7 @@ export class GoogleRootWebsite {
 
   @Column({ name: "updated_at", type: "bigint" })
   updatedAt: number;
+
+  @OneToMany(() => GoogleFlaggedPage, (page) => page.googleRootWebsite)
+  pages: GoogleFlaggedPage[];
 }

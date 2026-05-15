@@ -168,84 +168,27 @@ export class GoogleBusinessScraperService {
   async findFlaggedPagesForTeam(
     teamId: string,
     limit = 100,
+    page = 1,
     workflowRunId?: string,
-  ): Promise<GoogleFlaggedPagesGroupDto[]> {
+  ): Promise<GoogleRootWebsite[]> {
     const take = Math.min(Math.max(limit, 1), 500);
     const trimmedRunId = workflowRunId?.trim();
     const rootWhere = trimmedRunId
       ? { teamId, workflowRunId: trimmedRunId }
       : { teamId };
 
-    const roots = await this.rootRepo.find({
+    return await this.rootRepo.find({
       where: rootWhere,
       order: { createdAt: "DESC" },
-    });
-
-    if (!roots.length) {
-      const fallbackWhere = trimmedRunId
-        ? { teamId, workflowRunId: trimmedRunId }
-        : { teamId };
-      const pages = await this.flaggedRepo.find({
-        where: fallbackWhere,
-        order: { createdAt: "DESC" },
-        take,
-      });
-      return pages.length ? [{ rootWebsite: null, pages }] : [];
-    }
-
-    const rootIds = roots.map((r) => r.id);
-
-    type PageWhereClause =
-      | { teamId: string; googleRootWebsiteId: ReturnType<typeof In> }
-      | {
-          teamId: string;
-          workflowRunId: string;
-          googleRootWebsiteId: ReturnType<typeof IsNull>;
-        };
-
-    const pageWhereClauses: PageWhereClause[] = [
-      { teamId, googleRootWebsiteId: In(rootIds) },
-    ];
-    if (trimmedRunId) {
-      pageWhereClauses.push({
-        teamId,
-        workflowRunId: trimmedRunId,
-        googleRootWebsiteId: IsNull(),
-      });
-    }
-
-    const pages = await this.flaggedRepo.find({
-      where: pageWhereClauses,
-      order: { createdAt: "DESC" },
+      relations: ["pages"],
       take,
+      skip: (page - 1) * take,
     });
-
-    const byRootId = new Map<string, GoogleFlaggedPage[]>();
-    const orphaned: GoogleFlaggedPage[] = [];
-    for (const p of pages) {
-      if (p.googleRootWebsiteId) {
-        const bucket = byRootId.get(p.googleRootWebsiteId);
-        if (bucket) bucket.push(p);
-        else byRootId.set(p.googleRootWebsiteId, [p]);
-      } else {
-        orphaned.push(p);
-      }
-    }
-
-    const out: GoogleFlaggedPagesGroupDto[] = [];
-    for (const r of roots) {
-      const plist = byRootId.get(r.id);
-      if (plist?.length) {
-        out.push({ rootWebsite: this.toRootSummary(r), pages: plist });
-      }
-    }
-    if (orphaned.length) {
-      out.push({ rootWebsite: null, pages: orphaned });
-    }
-    return out;
   }
 
-  private toRootSummary(entity: GoogleRootWebsite): GoogleRootWebsiteSummaryDto {
+  private toRootSummary(
+    entity: GoogleRootWebsite,
+  ): GoogleRootWebsiteSummaryDto {
     return {
       id: entity.id,
       websiteUrl: entity.websiteUrl,
