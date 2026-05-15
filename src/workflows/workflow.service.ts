@@ -71,7 +71,7 @@ export class WorkflowService {
     const workflows = await this.workflowRepo.find({
       where: { teamId: user.teamId, ...extraWhere },
     });
-    return workflows;
+    return workflows.map((w) => this.attachWorkflowActionUrl(w));
   }
 
   async findByLinkedConnector(connectorId: string): Promise<Workflow[]> {
@@ -142,6 +142,7 @@ export class WorkflowService {
       }[];
       connectorsNeeded: string[];
       allowMultiple: boolean;
+      actionUrl: string | null;
     }[]
   > {
     return Object.entries(workflowConfigs).map(([name, config]) => ({
@@ -149,6 +150,10 @@ export class WorkflowService {
       description: config.description,
       connectorsNeeded: config.connectorsNeeded || [],
       allowMultiple: "allowMultiple" in config ? config.allowMultiple : false,
+      actionUrl:
+        "actionUrl" in config && typeof config.actionUrl === "string"
+          ? config.actionUrl
+          : null,
       steps: (config.steps || []).map((stepName) => ({
         name: stepName,
         description: workflowStepConfigs[stepName]?.description,
@@ -318,7 +323,7 @@ export class WorkflowService {
     if (!workflow) {
       throw new NotFoundException("Workflow not found");
     }
-    return workflow;
+    return this.attachWorkflowActionUrl(workflow);
   }
 
   async findWorkflowRuns(
@@ -583,9 +588,11 @@ export class WorkflowService {
   async createWorkflowRun({
     workflowId,
     context,
+    displayContext,
   }: {
     workflowId: string;
     context: Record<string, any>;
+    displayContext?: Record<string, any> | null;
   }): Promise<WorkflowRun> {
     // Plain `where: { context }` does not use the driver's JSON serialization (same as INSERT),
     // so MySQL often fails to match existing rows. Compare using the same JSON string as persist.
@@ -603,6 +610,7 @@ export class WorkflowService {
     const workflowRun = this.workflowRunRepo.create({
       workflowId,
       context,
+      displayContext: displayContext ?? null,
       status: WorkflowRunStatus.PENDING,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -649,6 +657,17 @@ export class WorkflowService {
         workflow.id
       }) with context ${JSON.stringify(context)}`,
     );
+  }
+
+  private attachWorkflowActionUrl<T extends Workflow>(
+    workflow: T,
+  ): T & { actionUrl: string | null } {
+    const cfg = workflowConfigs[workflow.workflowType] as
+      | { actionUrl?: string }
+      | undefined;
+    const actionUrl =
+      cfg && typeof cfg.actionUrl === "string" ? cfg.actionUrl : null;
+    return Object.assign(workflow, { actionUrl });
   }
 
   async delete(user: UserRequest, id: string): Promise<void> {

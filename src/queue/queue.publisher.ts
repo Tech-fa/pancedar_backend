@@ -59,4 +59,15 @@ export class QueuePublisher {
       data,
     );
   }
+
+  publishProcessWebsite(data: {
+    websiteUrl: string;
+    keywords: string[];
+    googleMapsSearchUrl?: string;
+    teamId?: string;
+    workflowRunId?: string;  
+    isLast?: boolean;
+  }) {
+    return this.publish(Events.PROCESS_WEBSITE, data);
+  }
 }

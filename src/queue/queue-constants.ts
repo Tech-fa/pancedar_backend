@@ -30,6 +30,8 @@ export enum Events {
   RECORD_COMMUNICATION = 'record_communication',
   NEW_KIJIJI_ITEM = 'new_kijiji_item',
   ORDER_CONFIRMED = 'order_confirmed',
+  /** Scrape a business website (sitemap or landing page) for keywords; persists `GoogleFlaggedPage` rows. */
+  PROCESS_WEBSITE = 'process_website',
 }
 
 

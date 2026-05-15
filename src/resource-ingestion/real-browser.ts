@@ -117,7 +117,10 @@ export class RealBrowserService {
         timeout: NAVIGATION_TIMEOUT_MS,
       });
       await this.humanPause(150, 500);
-
+      await page.screenshot({
+        path: "screenshot.png",
+        fullPage: true,
+      });
       // Submit can fail with a 500 the first time even when everything is
       // correct (the site does server-side reCAPTCHA verification and a fresh
       // session sometimes scores too low). Retrying via the "back to
@@ -177,6 +180,280 @@ export class RealBrowserService {
     }
   }
 
+  /**
+   * Opens a Google Maps search/list URL, scrolls the results feed, and collects
+   * external website URLs from `a[aria-label]` values that start with "Visit".
+   * Results load incrementally while scrolling the left results pane (role="feed"
+   * or the nearest overflow-y scroll ancestor of each `[role="article"]`).
+   */
+  async scrapeGoogleMapsBusinessWebsiteLinks(
+    googleMapsUrl: string,
+    onEachLink?: (link: string, isLast: boolean) => Promise<void>,
+  ): Promise<string[]> {
+    let browser: Browser | null = null;
+    try {
+      const userDataDir = await this.resolveUserDataDir();
+
+      const { browser: b, page } = await connect({
+        headless: process.env.HEADLESS === "true",
+        args: getPuppeteerArgs(),
+        customConfig: {
+          ...(process.env.PUPPETEER_EXECUTABLE_PATH
+            ? { chromePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+            : {}),
+          ...(userDataDir ? { userDataDir } : {}),
+        },
+        proxy: getProxyConfig(),
+        // Turnstile mode runs a 1s polling loop that clicks ~300px-wide empty divs
+        // (Cloudflare heuristic). On Google Maps that matches unrelated UI and causes
+        // spurious clicks and “Copied to clipboard” toasts. Maps does not use CF Turnstile.
+        turnstile: false,
+        connectOption: {
+          defaultViewport: null,
+        },
+        disableXvfb: process.env.DISABLE_XVFB === "true",
+      });
+      browser = b;
+
+      this.attachNetworkDebugLogging(page);
+      await this.prewarmGoogle(page);
+
+      await page.goto(googleMapsUrl, {
+        waitUntil: "networkidle2",
+        timeout: NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(500, 1200);
+
+      await page
+        .waitForSelector('[role="article"]', { timeout: 25_000 })
+        .catch(() => undefined);
+
+      const collected = new Set<string>();
+      let stableRounds = 0;
+
+      for (let round = 0; round < 80; round++) {
+        const batch = await page.evaluate(() => {
+          const results: string[] = [];
+          const seenLocal = new Set<string>();
+
+          const unwrapGoogleRedirect = (href: string): string | null => {
+            try {
+              const u = new URL(href);
+              const host = u.hostname.replace(/^www\./, "");
+              if (host === "google.com") {
+                if (u.pathname === "/url") {
+                  return (
+                    u.searchParams.get("q") || u.searchParams.get("url") || null
+                  );
+                }
+              }
+              return href;
+            } catch {
+              return null;
+            }
+          };
+
+          document.querySelectorAll('[role="article"]').forEach((article) => {
+            article.querySelectorAll("a[href][aria-label]").forEach((a) => {
+              const label = (a.getAttribute("aria-label") || "").trim();
+              if (!/^visit/i.test(label)) {
+                return;
+              }
+              const raw = (a as HTMLAnchorElement).href;
+              const cleaned = unwrapGoogleRedirect(raw);
+              if (!cleaned || seenLocal.has(cleaned)) {
+                return;
+              }
+              seenLocal.add(cleaned);
+              results.push(cleaned);
+            });
+          });
+          return results;
+        });
+
+        const beforeSize = collected.size;
+
+        for (let i = 0; i < batch.length; i++) {
+          const u = batch[i];
+          if (collected.has(u)) {
+            if (i === batch.length - 1 && round === 79) {
+              await onEachLink?.(u, true);
+            }
+            continue;
+          }
+          collected.add(u);
+          if (onEachLink) {
+            await onEachLink(u, round === 79 && i === batch.length - 1);
+          }
+        }
+        if (collected.size === beforeSize) {
+          stableRounds += 1;
+        } else {
+          stableRounds = 0;
+        }
+        if (stableRounds >= 5) {
+          break;
+        }
+        await this.humanPause(280, 650);
+        const { endOfList } = await this.scrollGoogleMapsResultsFeed(page);
+        if (endOfList) {
+          break;
+        }
+        await this.humanPause(280, 650);
+      }
+
+      return [...collected];
+    } catch (error) {
+      this.logger.error(
+        `Google Maps business scrape failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw error;
+    } finally {
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Google Maps frequently changes layout; a fixed `width: 408px` wrapper is often
+   * not the scrollable node, so `scrollTop` never moves. We resolve `[role="feed"]`
+   * or the scrollable ancestor of a result card, then use `scrollTop` and a wheel
+   * fallback; if nothing scrolls, fall back to `window.scrollBy`.
+   *
+   * Returns `endOfList` when the feed shows Google’s end-of-list copy, or the pane is
+   * at the bottom with no further movement (nothing more to load).
+   */
+  private async scrollGoogleMapsResultsFeed(
+    page: Page,
+  ): Promise<{ endOfList: boolean }> {
+    const { endOfList, didScroll } = await page.evaluate(() => {
+      const endOfListFromText = (node: HTMLElement | null) => {
+        if (!node) {
+          return false;
+        }
+        const t = (node.innerText || "")
+          .replace(/\s+/g, " ")
+          .toLowerCase()
+          .normalize("NFKC");
+        if (!t) {
+          return false;
+        }
+        return (
+          t.includes("end of the list") ||
+          t.includes("reached the end") ||
+          t.includes("you've reached the end") ||
+          t.includes("bottom of the list")
+        );
+      };
+
+      const overflowYScrollable = (el: HTMLElement) =>
+        /^(auto|scroll|overlay)$/.test(getComputedStyle(el).overflowY);
+
+      const findScroller = (): HTMLElement | null => {
+        const feed = document.querySelector('[role="feed"]');
+        if (feed instanceof HTMLElement) {
+          if (
+            feed.scrollHeight > feed.clientHeight + 48 &&
+            overflowYScrollable(feed)
+          ) {
+            return feed;
+          }
+        }
+        const article = document.querySelector('[role="article"]');
+        if (!(article instanceof HTMLElement)) {
+          return null;
+        }
+        let el: HTMLElement | null = article;
+        let best: HTMLElement | null = null;
+        let bestRoom = 0;
+        while (el) {
+          const room = el.scrollHeight - el.clientHeight;
+          if (room > bestRoom && room > 48 && overflowYScrollable(el)) {
+            best = el;
+            bestRoom = room;
+          }
+          el = el.parentElement;
+        }
+        return best;
+      };
+
+      const feed =
+        document.querySelector('[role="feed"]') instanceof HTMLElement
+          ? (document.querySelector('[role="feed"]') as HTMLElement)
+          : null;
+      const scroller = findScroller();
+
+      if (endOfListFromText(feed) || endOfListFromText(scroller)) {
+        return { endOfList: true, didScroll: false };
+      }
+
+      if (!scroller) {
+        window.scrollBy(0, Math.floor(window.innerHeight * 0.72));
+        return { endOfList: false, didScroll: true };
+      }
+
+      const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+      const before = scroller.scrollTop;
+      const atBottomBefore = maxScroll > 8 && before >= maxScroll - 3;
+
+      const step = Math.max(
+        160,
+        Math.min(
+          Math.floor(scroller.clientHeight * 0.78),
+          Math.max(0, maxScroll - before),
+        ),
+      );
+      scroller.scrollTop = Math.min(maxScroll, before + step);
+
+      let moved = scroller.scrollTop > before;
+
+      if (!moved) {
+        const mid = scroller.scrollTop;
+        const r = scroller.getBoundingClientRect();
+        const cx = r.left + Math.max(24, r.width * 0.45);
+        const cy = r.top + Math.max(24, r.height * 0.35);
+        const wheelDelta = Math.max(280, Math.floor(r.height * 0.55));
+        scroller.dispatchEvent(
+          new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: cx,
+            clientY: cy,
+            deltaY: wheelDelta,
+            deltaMode: 0,
+          }),
+        );
+        moved = scroller.scrollTop > mid;
+      }
+
+      if (endOfListFromText(feed) || endOfListFromText(scroller)) {
+        return { endOfList: true, didScroll: moved };
+      }
+
+      const atBottomAfter =
+        maxScroll > 8 && scroller.scrollTop >= maxScroll - 3;
+      if (atBottomAfter && !moved && atBottomBefore) {
+        return { endOfList: true, didScroll: false };
+      }
+
+      if (!moved) {
+        window.scrollBy(0, Math.floor(window.innerHeight * 0.72));
+        return { endOfList: false, didScroll: true };
+      }
+
+      return { endOfList: false, didScroll: true };
+    });
+
+    if (didScroll && !endOfList) {
+      await page
+        .waitForNetworkIdle({ idleTime: 350, timeout: 2800 })
+        .catch(() => undefined);
+    }
+
+    return { endOfList };
+  }
+
   private async delay(ms: number): Promise<void> {
     await new Promise((r) => setTimeout(r, ms));
   }
@@ -205,11 +482,15 @@ export class RealBrowserService {
     }
     try {
       await fs.mkdir(configured, { recursive: true });
-      this.logger.log(`[real-browser] using persistent profile at ${configured}`);
+      this.logger.log(
+        `[real-browser] using persistent profile at ${configured}`,
+      );
       return configured;
     } catch (e) {
       this.logger.warn(
-        `[real-browser] could not create user-data-dir ${configured}: ${(e as Error).message}; falling back to ephemeral profile`,
+        `[real-browser] could not create user-data-dir ${configured}: ${
+          (e as Error).message
+        }; falling back to ephemeral profile`,
       );
       return undefined;
     }
@@ -248,7 +529,9 @@ export class RealBrowserService {
       this.logger.log("[real-browser] prewarm visit to google.com complete");
     } catch (e) {
       this.logger.warn(
-        `[real-browser] google.com prewarm failed (continuing): ${(e as Error).message}`,
+        `[real-browser] google.com prewarm failed (continuing): ${
+          (e as Error).message
+        }`,
       );
     }
   }
@@ -366,7 +649,7 @@ export class RealBrowserService {
     if (!rawInput) {
       throw new Error(`No form input with name="${name}"`);
     }
-    const input = rawInput as unknown as ElementHandle<HTMLInputElement>;
+    const input = (rawInput as unknown) as ElementHandle<HTMLInputElement>;
     try {
       await input.evaluate((el) =>
         (el as HTMLInputElement).scrollIntoView({
@@ -438,7 +721,7 @@ export class RealBrowserService {
     if (!rawInput) {
       throw new Error(`No form input with name="${name}"`);
     }
-    const input = rawInput as unknown as ElementHandle<HTMLInputElement>;
+    const input = (rawInput as unknown) as ElementHandle<HTMLInputElement>;
     try {
       await input.evaluate((el) =>
         (el as HTMLInputElement).scrollIntoView({
@@ -701,9 +984,9 @@ export class RealBrowserService {
           type: i.type,
           value: i.value,
         }));
-        const selects = Array.from(form.querySelectorAll("select")).map(
-          (s) => ({ name: s.name, value: s.value }),
-        );
+        const selects = Array.from(
+          form.querySelectorAll("select"),
+        ).map((s) => ({ name: s.name, value: s.value }));
         return { found: true, inputs, selects } as const;
       });
       this.logger.debug(`[form] ${label}: ${JSON.stringify(state)}`);

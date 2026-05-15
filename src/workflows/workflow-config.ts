@@ -15,6 +15,7 @@ export enum WorkflowType {
   TECH_FA_CHAT_BUSINESS_ASSISTANT = "tech-fa-chat-business-assistant",
   BUSINESS_ASSISTANT_LINK_BOOKING = "business-assistant-link-booking",
   AUTOTRADER_NOTIFIER = "autotrader-notifier",
+  GOOGLE_BUSINESS_SCRAPER = "google-business-scraper",
 }
 
 export const workflowConfigs = {
@@ -106,6 +107,16 @@ export const workflowConfigs = {
     connectorsNeeded: ["Telegram Car Agent"],
     allowMultiple: false,
     entitiesNeeded: [],
+  },
+  "google-business-scraper": {
+    description:
+      "Scrape Google Maps business listings for website links, then scan each site (sitemap or homepage) for keywords and record matches.",
+    steps: ["scrape-google-businesses"],
+    connectorsNeeded: [],
+    allowMultiple: true,
+    entitiesNeeded: [],
+    /** POST body `{ workflowId }` — used by the dashboard to trigger a run. */
+    actionUrl: "google-business-scraper/scrape",
   },
   "phone-ordering-assistant": {
     description:
@@ -332,6 +343,24 @@ export const workflowStepConfigs = {
   },
   notify: {
     description: "Notify the user when new items are posted on Kijiji.",
+  },
+  "scrape-google-businesses": {
+    description:
+      "Google Maps search or list URL plus keywords to search for on each business website.",
+    fields: [
+      {
+        label: "Google Maps URL",
+        name: "googleMapsUrl",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Keywords (comma or newline separated)",
+        name: "keywords",
+        type: "textarea",
+        required: true,
+      },
+    ],
   },
 };
 

@@ -49,5 +49,6 @@ export class QueueModule {
     await this.producer.createQueue(Events.EMAIL_WORKFLOW_REPLY);
     await this.producer.createQueue(Events.EMAIL_WORKFLOW_REPLY_GMAIL);
     await this.producer.createQueue(Events.NEW_KIJIJI_ITEM);
+    await this.producer.createQueue(Events.PROCESS_WEBSITE);
   }
 }
