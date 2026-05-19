@@ -27,10 +27,8 @@ export type PublicContactInfo = {
   linkedinUrl: string | null;
 };
 
-const EMAIL_IN_TEXT_RE =
-  /\b[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}\b/g;
-const LINKEDIN_IN_TEXT_RE =
-  /https?:\/\/(?:www\.)?linkedin\.com\/[\w\-./%?=&]+/gi;
+const EMAIL_IN_TEXT_RE = /\b[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}\b/g;
+const LINKEDIN_IN_TEXT_RE = /https?:\/\/(?:www\.)?linkedin\.com\/[\w\-./%?=&]+/gi;
 const MAX_CONTACT_PAGE_VISITS = 6;
 
 @Injectable()
@@ -41,7 +39,9 @@ export class BrowserService {
    * Resolves crawlable page URLs from `/sitemap.xml` (and common variants), including
    * one-level `sitemapindex` expansion. If no sitemap yields URLs, returns `[websiteUrl]`.
    */
-  async resolveUrlsToScanFromWebsiteRoot(websiteUrl: string): Promise<string[]> {
+  async resolveUrlsToScanFromWebsiteRoot(
+    websiteUrl: string,
+  ): Promise<string[]> {
     const normalizedRoot = this.normalizeHttpUrl(websiteUrl);
     let root: URL;
     try {
@@ -73,11 +73,22 @@ export class BrowserService {
     return [...collected].slice(0, MAX_PAGES_TO_SCAN);
   }
 
+  async launchBrowser(): Promise<Browser> {
+    return await puppeteer.launch({
+      headless: true,
+      args: PUPPETEER_ARGS,
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH
+        ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+        : {}),
+    });
+  }
+
   /**
    * Loads each page (Puppeteer), extracts visible text, and returns entries where
    * any keyword appears (case-insensitive substring).
    */
   async collectKeywordMatchesAcrossPages(
+    browser: Browser,
     websiteUrl: string,
     rawKeywords: string[],
   ): Promise<KeywordMatchOnPage[]> {
@@ -94,18 +105,9 @@ export class BrowserService {
     );
     const out: KeywordMatchOnPage[] = [];
 
-    let browser: Browser | null = null;
     try {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: PUPPETEER_ARGS,
-        ...(process.env.PUPPETEER_EXECUTABLE_PATH
-          ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
-          : {}),
-      });
-      let counter = 0
+      let counter = 0;
       for (const pageUrl of pageUrls) {
-        
         const text = await this.extractTextFromUrl(pageUrl, browser);
         if (!text) {
           continue;
@@ -125,7 +127,7 @@ export class BrowserService {
           textSnippet: snippet,
         });
         counter++;
-        if (counter > 20){
+        if (counter > 20) {
           break;
         }
       }
@@ -141,11 +143,14 @@ export class BrowserService {
    * or `[websiteUrl]` fallback), then unions mailto/tel/LinkedIn links and plain-text matches.
    */
   async extractPublicContactInfoFromWebsiteRoot(
+    browser: Browser,
     websiteUrl: string,
   ): Promise<PublicContactInfo> {
     const root = this.normalizeHttpUrl(websiteUrl);
     const pageUrls = await this.resolveUrlsToScanFromWebsiteRoot(websiteUrl);
-    const contactPaths = pageUrls.filter((u) => this.looksLikeContactPagePath(u));
+    const contactPaths = pageUrls.filter((u) =>
+      this.looksLikeContactPagePath(u),
+    );
     const visitOrder = this.dedupeStrings([root, ...contactPaths]).slice(
       0,
       MAX_CONTACT_PAGE_VISITS,
@@ -155,15 +160,7 @@ export class BrowserService {
     const phones = new Set<string>();
     const linkedins = new Set<string>();
 
-    let browser: Browser | null = null;
     try {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: PUPPETEER_ARGS,
-        ...(process.env.PUPPETEER_EXECUTABLE_PATH
-          ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
-          : {}),
-      });
       for (const pageUrl of visitOrder) {
         await this.harvestContactHintsFromPageUrl(
           pageUrl,
@@ -174,7 +171,6 @@ export class BrowserService {
         );
       }
     } finally {
-      await browser?.close();
     }
 
     return {
@@ -475,10 +471,7 @@ export class BrowserService {
   }
 
   private normalizePhoneCandidate(raw: string): string | null {
-    const first = raw
-      .split(/[;,|]/)[0]
-      .replace(/^tel:/i, "")
-      .trim();
+    const first = raw.split(/[;,|]/)[0].replace(/^tel:/i, "").trim();
     if (!first) {
       return null;
     }

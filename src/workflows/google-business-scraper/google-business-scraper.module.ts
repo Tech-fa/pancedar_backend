@@ -7,6 +7,7 @@ import { GoogleFlaggedPage } from "./google-flagged-page.entity";
 import { GoogleRootWebsite } from "./google-root-website.entity";
 import { GoogleBusinessScraperController } from "./google-business-scraper.controller";
 import { GoogleBusinessScraperService } from "./google-business-scraper.service";
+import { LinkedInOutreachService } from "./linkedin-outreach.service";
 import { ProcessWebsiteQueueHandler } from "./process-website-queue.handler";
 
 @Module({
@@ -19,6 +20,7 @@ import { ProcessWebsiteQueueHandler } from "./process-website-queue.handler";
   controllers: [GoogleBusinessScraperController],
   providers: [
     GoogleBusinessScraperService,
+    LinkedInOutreachService,
     ProcessWebsiteQueueHandler,
   ],
   exports: [GoogleBusinessScraperService],

@@ -7,7 +7,22 @@ import { connect } from "puppeteer-real-browser";
 import type { Browser, ElementHandle, Page } from "rebrowser-puppeteer-core";
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
+const LINKEDIN_NAVIGATION_TIMEOUT_MS = 45_000;
+const MAX_LINKEDIN_SHOW_MORE_CLICKS = 25;
+const MAX_LINKEDIN_ACTIVITY_SCROLL_ROUNDS = 12;
 const CARLETON_PARKING_URL = "https://carletonparking.com";
+
+export type LinkedInPersonProfile = {
+  name: string;
+  position: string;
+  profileUrl: string;
+};
+
+export type LinkedInPeopleScrapeResult = {
+  associatedMembersCount: number | null;
+  profiles: LinkedInPersonProfile[];
+  skipReason?: string;
+};
 const CARLETON_MAX_REGISTRATION_ATTEMPTS = 5;
 // Visiting Google before the Carleton form lets Google's invisible reCAPTCHA
 // client set its trust cookies (NID, __Secure-…) against this profile, which
@@ -312,6 +327,378 @@ export class RealBrowserService {
     } finally {
       await browser?.close().catch(() => undefined);
     }
+  }
+
+  /**
+   * Opens the company LinkedIn `/people` page, reads the associated-members count,
+   * and (when under 100 members) collects "People you may know" cards until "Show more results"
+   * is exhausted.
+   */
+  async collectLinkedInPeopleProfiles(
+    companyLinkedInUrl: string,
+  ): Promise<LinkedInPeopleScrapeResult> {
+    const peopleUrl = this.toLinkedInPeopleUrl(companyLinkedInUrl);
+    let browser: Browser | null = null;
+    try {
+      const page = await this.openRealBrowserPage((b) => {
+        browser = b;
+      });
+      await page.goto(peopleUrl, {
+        waitUntil: "networkidle2",
+        timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(800, 1600);
+
+      if (await this.linkedinPageRequiresAuth(page)) {
+        return {
+          associatedMembersCount: null,
+          profiles: [],
+          skipReason: "linkedin_auth_required",
+        };
+      }
+
+      const associatedMembersCount =
+        await this.readLinkedInAssociatedMembersCount(page);
+      if (
+        associatedMembersCount !== null &&
+        associatedMembersCount >= 100
+      ) {
+        this.logger.log(
+          `[linkedin] skipping people scrape: ${associatedMembersCount} associated members`,
+        );
+        return {
+          associatedMembersCount,
+          profiles: [],
+          skipReason: "too_many_associated_members",
+        };
+      }
+
+      await page
+        .waitForFunction(
+          () => {
+            const headings = Array.from(document.querySelectorAll("h2"));
+            return headings.some((h) =>
+              /people you may know/i.test(h.textContent || ""),
+            );
+          },
+          { timeout: 20_000 },
+        )
+        .catch(() => undefined);
+
+      for (let i = 0; i < MAX_LINKEDIN_SHOW_MORE_CLICKS; i++) {
+        const clicked = await this.clickLinkedInShowMoreResults(page);
+        if (!clicked) {
+          break;
+        }
+        await this.humanPause(500, 1100);
+      }
+
+      const profiles = await this.readLinkedInPeopleYouMayKnowProfiles(page);
+      this.logger.log(
+        `[linkedin] collected ${profiles.length} profile(s) from ${peopleUrl}`,
+      );
+      return { associatedMembersCount, profiles };
+    } catch (error) {
+      this.logger.error(
+        `LinkedIn people scrape failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw error;
+    } finally {
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Visits a member profile's `/recent-activity/all/` feed, scrolls the finite-scroll
+   * container, and returns up to `maxSnippets` post texts from `feed-shared-update-v2`.
+   */
+  async collectLinkedInProfileActivitySnippets(
+    profileUrl: string,
+    maxSnippets = 5,
+  ): Promise<string[]> {
+    const activityUrl = this.toLinkedInRecentActivityUrl(profileUrl);
+    let browser: Browser | null = null;
+    try {
+      const page = await this.openRealBrowserPage((b) => {
+        browser = b;
+      });
+      await page.goto(activityUrl, {
+        waitUntil: "networkidle2",
+        timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(800, 1600);
+
+      if (await this.linkedinPageRequiresAuth(page)) {
+        return [];
+      }
+
+      const collected: string[] = [];
+      const seen = new Set<string>();
+
+      for (let round = 0; round < MAX_LINKEDIN_ACTIVITY_SCROLL_ROUNDS; round++) {
+        const batch = await page.evaluate(() => {
+          const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+          const results: string[] = [];
+          const seenLocal = new Set<string>();
+          document
+            .querySelectorAll(".feed-shared-update-v2")
+            .forEach((node) => {
+              const text = normalize((node as HTMLElement).innerText || "");
+              if (text.length < 40 || seenLocal.has(text)) {
+                return;
+              }
+              seenLocal.add(text);
+              results.push(text);
+            });
+          return results;
+        });
+
+        for (const text of batch) {
+          if (seen.has(text)) {
+            continue;
+          }
+          seen.add(text);
+          collected.push(text);
+          if (collected.length >= maxSnippets) {
+            return collected.slice(0, maxSnippets);
+          }
+        }
+
+        const { atEnd } = await this.scrollLinkedInFiniteScroll(page);
+        if (atEnd && collected.length >= maxSnippets) {
+          break;
+        }
+        if (atEnd && round > 2) {
+          break;
+        }
+        await this.humanPause(400, 900);
+      }
+
+      return collected.slice(0, maxSnippets);
+    } catch (error) {
+      this.logger.error(
+        `LinkedIn activity scrape failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw error;
+    } finally {
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  private async openRealBrowserPage(
+    onBrowser: (browser: Browser) => void,
+  ): Promise<Page> {
+    const userDataDir = await this.resolveUserDataDir();
+    const { browser, page } = await connect({
+      headless: process.env.HEADLESS === "true",
+      args: getPuppeteerArgs(),
+      customConfig: {
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH
+          ? { chromePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+          : {}),
+        ...(userDataDir ? { userDataDir } : {}),
+      },
+      proxy: getProxyConfig(),
+      turnstile: false,
+      connectOption: {
+        defaultViewport: null,
+      },
+      disableXvfb: process.env.DISABLE_XVFB === "true",
+    });
+    onBrowser(browser);
+    this.attachNetworkDebugLogging(page);
+    await this.prewarmGoogle(page);
+    return page;
+  }
+
+  private toLinkedInPeopleUrl(companyLinkedInUrl: string): string {
+    try {
+      const u = new URL(companyLinkedInUrl.trim());
+      let path = u.pathname.replace(/\/+$/, "");
+      if (!/\/people$/i.test(path)) {
+        path = `${path}/people`;
+      }
+      u.pathname = path;
+      return u.href;
+    } catch {
+      const t = companyLinkedInUrl.trim().replace(/\/+$/, "");
+      return /\/people$/i.test(t) ? t : `${t}/people`;
+    }
+  }
+
+  private toLinkedInRecentActivityUrl(profileUrl: string): string {
+    try {
+      const u = new URL(profileUrl.trim());
+      let path = u.pathname.replace(/\/+$/, "");
+      if (!/\/recent-activity\/all$/i.test(path)) {
+        path = `${path}/recent-activity/all`;
+      }
+      u.pathname = path;
+      return u.href;
+    } catch {
+      const t = profileUrl.trim().replace(/\/+$/, "");
+      return /\/recent-activity\/all$/i.test(t)
+        ? t
+        : `${t}/recent-activity/all`;
+    }
+  }
+
+  private async linkedinPageRequiresAuth(page: Page): Promise<boolean> {
+    return await page.evaluate(() => {
+      const body = (document.body?.innerText || "").toLowerCase();
+      const url = window.location.href.toLowerCase();
+      return (
+        url.includes("/login") ||
+        url.includes("/authwall") ||
+        body.includes("sign in to linkedin") ||
+        body.includes("join linkedin")
+      );
+    });
+  }
+
+  private async readLinkedInAssociatedMembersCount(
+    page: Page,
+  ): Promise<number | null> {
+    return await page.evaluate(() => {
+      const headings = Array.from(document.querySelectorAll("h2"));
+      for (const h of headings) {
+        const text = (h.textContent || "").replace(/\s+/g, " ").trim();
+        const match = text.match(/([\d,]+)\s+associated\s+members/i);
+        if (match) {
+          const n = Number.parseInt(match[1].replace(/,/g, ""), 10);
+          if (Number.isFinite(n)) {
+            return n;
+          }
+        }
+      }
+      return null;
+    });
+  }
+
+  private async readLinkedInPeopleYouMayKnowProfiles(
+    page: Page,
+  ): Promise<LinkedInPersonProfile[]> {
+    return await page.evaluate(() => {
+      const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+      const findScroller = (): HTMLElement | null => {
+        const headings = Array.from(document.querySelectorAll("h2"));
+        const h2 = headings.find((h) =>
+          /people you may know/i.test(h.textContent || ""),
+        );
+        if (!h2) {
+          return null;
+        }
+        let el: Element | null = h2.nextElementSibling;
+        while (el) {
+          if (el.classList.contains("scaffold-finite-scroll")) {
+            return el as HTMLElement;
+          }
+          el = el.nextElementSibling;
+        }
+        const parent = h2.parentElement;
+        if (parent) {
+          for (const child of Array.from(parent.children)) {
+            if (
+              child !== h2 &&
+              child.classList.contains("scaffold-finite-scroll")
+            ) {
+              return child as HTMLElement;
+            }
+          }
+        }
+        return null;
+      };
+
+      const scroller = findScroller();
+      if (!scroller) {
+        return [];
+      }
+
+      const profiles: Array<{
+        name: string;
+        position: string;
+        profileUrl: string;
+      }> = [];
+      const seenUrls = new Set<string>();
+
+      scroller.querySelectorAll("li").forEach((li) => {
+        const info = li.querySelector(".org-people-profile-card__profile-info");
+        if (!info) {
+          return;
+        }
+        const link = li.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
+        if (!link?.href) {
+          return;
+        }
+        let profileUrl = link.href.split("?")[0];
+        if (!profileUrl.includes("/in/")) {
+          return;
+        }
+        if (seenUrls.has(profileUrl)) {
+          return;
+        }
+        seenUrls.add(profileUrl);
+
+        const lines = Array.from(
+          info.querySelectorAll(
+            "span, div, a, p, [class*='profile-card']",
+          ),
+        )
+          .map((el) => normalize(el.textContent || ""))
+          .filter((t) => t.length > 0);
+        const uniqueLines = [...new Set(lines)];
+        const name = uniqueLines[0] || normalize(info.textContent || "");
+        const position = uniqueLines.slice(1).join(" · ");
+        if (!name) {
+          return;
+        }
+        profiles.push({ name, position, profileUrl });
+      });
+
+      return profiles;
+    });
+  }
+
+  private async clickLinkedInShowMoreResults(page: Page): Promise<boolean> {
+    return await page.evaluate(() => {
+      const buttons = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      );
+      const btn = buttons.find((b) =>
+        /show more results/i.test((b.textContent || "").trim()),
+      );
+      if (!btn || btn.disabled) {
+        return false;
+      }
+      btn.scrollIntoView({ block: "center", inline: "nearest" });
+      btn.click();
+      return true;
+    });
+  }
+
+  private async scrollLinkedInFiniteScroll(
+    page: Page,
+  ): Promise<{ atEnd: boolean }> {
+    return await page.evaluate(() => {
+      const scroller =
+        document.querySelector(".scaffold-finite-scroll") instanceof HTMLElement
+          ? (document.querySelector(
+              ".scaffold-finite-scroll",
+            ) as HTMLElement)
+          : null;
+      if (!scroller) {
+        window.scrollBy(0, Math.floor(window.innerHeight * 0.75));
+        return { atEnd: false };
+      }
+      const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+      const before = scroller.scrollTop;
+      const step = Math.max(200, Math.floor(scroller.clientHeight * 0.7));
+      scroller.scrollTop = Math.min(maxScroll, before + step);
+      const atEnd = scroller.scrollTop >= maxScroll - 4;
+      return { atEnd: atEnd && scroller.scrollTop <= before + 2 };
+    });
   }
 
   /**

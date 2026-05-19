@@ -24,6 +24,8 @@ export type GoogleRootWebsiteSummaryDto = Pick<
   | "phones"
   | "emails"
   | "linkedinUrl"
+  | "linkedinContactProfileUrl"
+  | "linkedinOutreachSummary"
   | "createdAt"
   | "updatedAt"
 >;
@@ -196,6 +198,8 @@ export class GoogleBusinessScraperService {
       phones: entity.phones ?? [],
       emails: entity.emails ?? [],
       linkedinUrl: entity.linkedinUrl,
+      linkedinContactProfileUrl: entity.linkedinContactProfileUrl,
+      linkedinOutreachSummary: entity.linkedinOutreachSummary,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

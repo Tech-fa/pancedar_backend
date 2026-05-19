@@ -7,6 +7,7 @@ import { Events, getListening } from "../../queue/queue-constants";
 import { Public } from "../../util/constants";
 import { GoogleFlaggedPage } from "./google-flagged-page.entity";
 import { GoogleRootWebsite } from "./google-root-website.entity";
+import { LinkedInOutreachService } from "./linkedin-outreach.service";
 import { WorkflowService } from "../workflow.service";
 import { WorkflowRunStatus } from "../dto";
 
@@ -25,6 +26,7 @@ export class ProcessWebsiteQueueHandler {
 
   constructor(
     private readonly browserService: BrowserService,
+    private readonly linkedInOutreach: LinkedInOutreachService,
     @InjectRepository(GoogleFlaggedPage)
     private readonly flaggedRepo: Repository<GoogleFlaggedPage>,
     @InjectRepository(GoogleRootWebsite)
@@ -50,7 +52,10 @@ export class ProcessWebsiteQueueHandler {
     const teamId = payload.teamId ?? null;
     this.logger.log(`PROCESS_WEBSITE started for ${websiteRoot}`);
     try {
+      const browser = await this.browserService.launchBrowser();
+
       const matches = await this.browserService.collectKeywordMatchesAcrossPages(
+        browser,
         websiteRoot,
         payload.keywords,
       );
@@ -64,6 +69,7 @@ export class ProcessWebsiteQueueHandler {
 
       const now = Date.now();
       const contact = await this.browserService.extractPublicContactInfoFromWebsiteRoot(
+        browser,
         websiteRoot,
       );
 
@@ -137,6 +143,39 @@ export class ProcessWebsiteQueueHandler {
         }
       }
 
+      if (rootEntity.linkedinUrl) {
+        try {
+          const outreach = await this.linkedInOutreach.runOutreach(
+            rootEntity.linkedinUrl,
+            payload.keywords,
+          );
+          if (
+            outreach.linkedinContactProfileUrl ||
+            outreach.linkedinOutreachSummary
+          ) {
+            rootEntity.linkedinContactProfileUrl =
+              outreach.linkedinContactProfileUrl;
+            rootEntity.linkedinOutreachSummary =
+              outreach.linkedinOutreachSummary;
+            rootEntity.updatedAt = Date.now();
+            await this.rootWebsiteRepo.save(rootEntity);
+            this.logger.log(
+              `PROCESS_WEBSITE LinkedIn outreach saved for ${websiteRoot}`,
+            );
+          } else if (outreach.skipReason) {
+            this.logger.log(
+              `PROCESS_WEBSITE LinkedIn outreach skipped (${outreach.skipReason}) for ${websiteRoot}`,
+            );
+          }
+        } catch (outreachError) {
+          this.logger.warn(
+            `PROCESS_WEBSITE LinkedIn outreach failed for ${websiteRoot}: ${
+              (outreachError as Error).message
+            }`,
+          );
+        }
+      }
+
       if (payload.isLast) {
         this.logger.log(`PROCESS_WEBSITE last website for ${websiteRoot}`);
         await this.workflowService.updateWorkflowRun(payload.workflowRunId, {
@@ -163,20 +202,6 @@ export class ProcessWebsiteQueueHandler {
         (error as Error).stack,
       );
     }
-  }
-
-  private rootWebsiteLookupWhere(
-    teamId: string | null,
-    websiteUrl: string,
-    workflowRunId: string | null,
-  ): FindOptionsWhere<GoogleRootWebsite> {
-    return {
-      websiteUrl,
-      ...(teamId == null ? { teamId: IsNull() } : { teamId }),
-      ...(workflowRunId == null
-        ? { workflowRunId: IsNull() }
-        : { workflowRunId }),
-    };
   }
 
   /**
