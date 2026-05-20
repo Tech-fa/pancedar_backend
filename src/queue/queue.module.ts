@@ -24,6 +24,11 @@ import { QueuePublisher } from './queue.publisher';
           timeout: 30 * 1000,
         },
       },
+      channels: {
+        'process-website': {
+          prefetchCount: 1,
+        },
+      },
     }),
   ],
   providers: [QueuePublisher],

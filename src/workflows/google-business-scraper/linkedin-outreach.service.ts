@@ -1,9 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { completeUserPrompt } from "src/llm-integration/llm-stream";
+import { Connector } from "../../connector/connector.entity";
 import {
+  LinkedInAuthCredentials,
   LinkedInPersonProfile,
   RealBrowserService,
 } from "../../resource-ingestion/real-browser";
+import { decrypt } from "../../util/helper-util";
+
+const LINKEDIN_USERNAME_FIELD = "LinkedIn Username";
+const LINKEDIN_PASSWORD_FIELD = "LinkedIn Password";
 
 export type LinkedInOutreachResult = {
   linkedinContactProfileUrl: string | null;
@@ -24,6 +30,7 @@ export class LinkedInOutreachService {
   async runOutreach(
     companyLinkedInUrl: string,
     keywords: string[],
+    credentials?: LinkedInAuthCredentials,
   ): Promise<LinkedInOutreachResult> {
     const empty: LinkedInOutreachResult = {
       linkedinContactProfileUrl: null,
@@ -36,6 +43,7 @@ export class LinkedInOutreachService {
 
     const peopleData = await this.realBrowser.collectLinkedInPeopleProfiles(
       companyLinkedInUrl,
+      credentials,
     );
     if (peopleData.skipReason) {
       this.logger.log(
@@ -59,6 +67,7 @@ export class LinkedInOutreachService {
       await this.realBrowser.collectLinkedInProfileActivitySnippets(
         selected.profileUrl,
         5,
+        credentials,
       );
 
     const summary = await this.summarizeOutreachMessage(
@@ -71,6 +80,27 @@ export class LinkedInOutreachService {
       linkedinContactProfileUrl: selected.profileUrl,
       linkedinOutreachSummary: summary,
     };
+  }
+
+  /** Resolves username/password from a linked LinkedIn connector record. */
+  async credentialsFromConnector(
+    connector: Connector | undefined,
+  ): Promise<LinkedInAuthCredentials | undefined> {
+    if (!connector?.credentials) {
+      return undefined;
+    }
+    const username = String(
+      connector.credentials[LINKEDIN_USERNAME_FIELD] ?? "",
+    ).trim();
+    const encryptedPassword = connector.credentials[LINKEDIN_PASSWORD_FIELD];
+    if (!username || !encryptedPassword) {
+      return undefined;
+    }
+    const password = await decrypt(String(encryptedPassword));
+    if (!password?.trim()) {
+      return undefined;
+    }
+    return { username, password: password.trim() };
   }
 
   private async pickMostRelevantProfile(

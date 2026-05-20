@@ -23,6 +23,12 @@ export type LinkedInPeopleScrapeResult = {
   profiles: LinkedInPersonProfile[];
   skipReason?: string;
 };
+
+/** Credentials from the LinkedIn connector (`connector-types.config.ts`). */
+export type LinkedInAuthCredentials = {
+  username: string;
+  password: string;
+};
 const CARLETON_MAX_REGISTRATION_ATTEMPTS = 5;
 // Visiting Google before the Carleton form lets Google's invisible reCAPTCHA
 // client set its trust cookies (NID, __Secure-…) against this profile, which
@@ -196,6 +202,142 @@ export class RealBrowserService {
   }
 
   /**
+   * Searches Google for blog posts related to `topic` and returns organic result
+   * titles, URLs, and snippets (up to `maxResults`, default 8).
+   */
+  async searchGoogleRelatedBlogs(
+    topic: string,
+    maxResults = 8,
+  ): Promise<
+    Array<{ title: string; url: string; snippet: string }>
+  > {
+    const query = `${topic.trim()} blog`;
+    const encodedQuery = encodeURIComponent(query);
+    const searchUrl = `https://www.google.com/search?q=${encodedQuery}&hl=en`;
+    let browser: Browser | null = null;
+    try {
+      const userDataDir = await this.resolveUserDataDir();
+      const { browser: b, page } = await connect({
+        headless: process.env.HEADLESS === "true",
+        args: getPuppeteerArgs(),
+        customConfig: {
+          ...(process.env.PUPPETEER_EXECUTABLE_PATH
+            ? { chromePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+            : {}),
+          ...(userDataDir ? { userDataDir } : {}),
+        },
+        proxy: getProxyConfig(),
+        turnstile: false,
+        connectOption: { defaultViewport: null },
+        disableXvfb: process.env.DISABLE_XVFB === "true",
+      });
+      browser = b;
+      await this.prewarmGoogle(page);
+      await page.goto(searchUrl, {
+        waitUntil: "networkidle2",
+        timeout: NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(500, 1200);
+
+      const asyncContextSelector = `div[data-async-context="query:${encodedQuery}"]`;
+      await page
+        .waitForSelector(asyncContextSelector, { timeout: 20_000 })
+        .catch(() => undefined);
+
+      const results = await page.evaluate(
+        (limit, encodedQueryArg) => {
+          const out: Array<{ title: string; url: string; snippet: string }> =
+            [];
+          const seen = new Set<string>();
+
+          const unwrapGoogleRedirect = (href: string): string | null => {
+            try {
+              const u = new URL(href);
+              const host = u.hostname.replace(/^www\./, "");
+              if (host === "google.com" && u.pathname === "/url") {
+                return u.searchParams.get("q") || u.searchParams.get("url");
+              }
+              return href;
+            } catch {
+              return null;
+            }
+          };
+
+          const findResultsContainer = (): Element | null => {
+            const candidates = [
+              `query:${encodedQueryArg}`,
+              `query:${encodedQueryArg.replace(/%20/g, "+")}`,
+            ];
+            for (const value of candidates) {
+              const el = document.querySelector(
+                `div[data-async-context="${value}"]`,
+              );
+              if (el) return el;
+            }
+            const plusQuery = decodeURIComponent(encodedQueryArg).replace(
+              / /g,
+              "+",
+            );
+            const plusEl = document.querySelector(
+              `div[data-async-context="query:${plusQuery}"]`,
+            );
+            if (plusEl) return plusEl;
+
+            for (const el of document.querySelectorAll(
+              'div[data-async-context^="query:"]',
+            )) {
+              const ctx = el.getAttribute("data-async-context") || "";
+              if (
+                ctx === `query:${encodedQueryArg}` ||
+                ctx.includes(encodedQueryArg)
+              ) {
+                return el;
+              }
+            }
+            return null;
+          };
+
+          const container = findResultsContainer();
+          if (!container) {
+            return out;
+          }
+
+          // Organic results: anchor links inside child divs of the async-context root.
+          const blocks = container.querySelectorAll(":scope > div");
+          blocks.forEach((block) => {
+            if (out.length >= limit) return;
+            const link = block.querySelector<HTMLAnchorElement>("a[href]");
+            if (!link) return;
+            const rawHref = link.href || "";
+            const url = unwrapGoogleRedirect(rawHref);
+            if (!url || seen.has(url)) return;
+            if (/google\.com/i.test(url)) return;
+            const title = (link.textContent || "").trim();
+            if (!title) return;
+            const snippetEl =
+              block.querySelector(".VwiC3b") ||
+              block.querySelector("[data-sncf]") ||
+              block.querySelector(".st");
+            const snippet = (snippetEl?.textContent || "").trim();
+            seen.add(url);
+            out.push({ title, url, snippet });
+          });
+          return out;
+        },
+        maxResults,
+        encodedQuery,
+      );
+
+      this.logger.log(
+        `[seo-helper] Google blog search for "${topic}": ${results.length} result(s)`,
+      );
+      return results;
+    } finally {
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  /**
    * Opens a Google Maps search/list URL, scrolls the results feed, and collects
    * external website URLs from `a[aria-label]` values that start with "Visit".
    * Results load incrementally while scrolling the left results pane (role="feed"
@@ -336,6 +478,7 @@ export class RealBrowserService {
    */
   async collectLinkedInPeopleProfiles(
     companyLinkedInUrl: string,
+    credentials?: LinkedInAuthCredentials,
   ): Promise<LinkedInPeopleScrapeResult> {
     const peopleUrl = this.toLinkedInPeopleUrl(companyLinkedInUrl);
     let browser: Browser | null = null;
@@ -349,7 +492,12 @@ export class RealBrowserService {
       });
       await this.humanPause(800, 1600);
 
-      if (await this.linkedinPageRequiresAuth(page)) {
+      const sessionReady = await this.ensureLinkedInSession(
+        page,
+        credentials,
+        peopleUrl,
+      );
+      if (!sessionReady) {
         return {
           associatedMembersCount: null,
           profiles: [],
@@ -416,6 +564,7 @@ export class RealBrowserService {
   async collectLinkedInProfileActivitySnippets(
     profileUrl: string,
     maxSnippets = 5,
+    credentials?: LinkedInAuthCredentials,
   ): Promise<string[]> {
     const activityUrl = this.toLinkedInRecentActivityUrl(profileUrl);
     let browser: Browser | null = null;
@@ -424,12 +573,17 @@ export class RealBrowserService {
         browser = b;
       });
       await page.goto(activityUrl, {
-        waitUntil: "networkidle2",
+        waitUntil: "domcontentloaded",
         timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
       });
       await this.humanPause(800, 1600);
 
-      if (await this.linkedinPageRequiresAuth(page)) {
+      const sessionReady = await this.ensureLinkedInSession(
+        page,
+        credentials,
+        activityUrl,
+      );
+      if (!sessionReady) {
         return [];
       }
 
@@ -552,10 +706,149 @@ export class RealBrowserService {
       return (
         url.includes("/login") ||
         url.includes("/authwall") ||
+        url.includes("/checkpoint") ||
         body.includes("sign in to linkedin") ||
         body.includes("join linkedin")
       );
     });
+  }
+
+  /**
+   * Logs in with connector credentials when LinkedIn shows a login/auth wall,
+   * then returns to `returnUrl` before continuing the scrape.
+   */
+  private async ensureLinkedInSession(
+    page: Page,
+    credentials: LinkedInAuthCredentials | undefined,
+    returnUrl: string,
+  ): Promise<boolean> {
+    if (!(await this.linkedinPageRequiresAuth(page))) {
+      return true;
+    }
+    if (!credentials?.username?.trim() || !credentials?.password?.trim()) {
+      this.logger.log("[linkedin] auth required but no credentials provided");
+      return false;
+    }
+
+    const loggedIn = await this.loginToLinkedIn(page, credentials);
+    if (!loggedIn) {
+      return false;
+    }
+
+    await page.goto(returnUrl, {
+      waitUntil: "networkidle2",
+      timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+    });
+    await this.humanPause(800, 1600);
+
+    if (await this.linkedinPageRequiresAuth(page)) {
+      this.logger.warn("[linkedin] still on auth page after login attempt");
+      return false;
+    }
+    return true;
+  }
+
+  private async loginToLinkedIn(
+    page: Page,
+    credentials: LinkedInAuthCredentials,
+  ): Promise<boolean> {
+    const url = page.url().toLowerCase();
+    if (!url.includes("/login") && !url.includes("/authwall")) {
+      await page.goto("https://www.linkedin.com/login", {
+        waitUntil: "networkidle2",
+        timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(800, 1600);
+    }
+
+    const usernameSelector =
+      '#username, input[name="session_key"], input[autocomplete="username"]';
+    const passwordSelector =
+      '#password, input[name="session_password"], input[autocomplete="current-password"]';
+
+    try {
+      await page.waitForSelector(usernameSelector, { timeout: 20_000 });
+      await this.typeIntoSelector(page, usernameSelector, credentials.username);
+      await this.humanPause(200, 500);
+      await this.typeIntoSelector(page, passwordSelector, credentials.password);
+      await this.humanPause(300, 700);
+
+      const submit = await page.$(
+        'button[type="submit"], input[type="submit"], button[data-litms-control-urn="login-submit"]',
+      );
+      if (!submit) {
+        this.logger.warn("[linkedin] login submit button not found");
+        return false;
+      }
+      try {
+        const clicked = await this.realMouseClick(page, submit);
+        if (!clicked) {
+          await submit.click();
+        }
+      } finally {
+        await submit.dispose().catch(() => undefined);
+      }
+
+      await page
+        .waitForNavigation({
+          waitUntil: "networkidle2",
+          timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+        })
+        .catch(() => undefined);
+      await this.humanPause(1200, 2200);
+
+      if (page.url().toLowerCase().includes("/checkpoint")) {
+        this.logger.warn(
+          "[linkedin] login reached security checkpoint; manual verification may be required",
+        );
+        return false;
+      }
+
+      return !(await this.linkedinPageRequiresAuth(page));
+    } catch (error) {
+      this.logger.warn(
+        `[linkedin] login failed: ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  private async typeIntoSelector(
+    page: Page,
+    selector: string,
+    value: string,
+  ): Promise<void> {
+    const rawInput = await page.$(selector);
+    if (!rawInput) {
+      throw new Error(`No input matching selector: ${selector}`);
+    }
+    const input = (rawInput as unknown) as ElementHandle<HTMLInputElement>;
+    try {
+      await input.evaluate((el) =>
+        (el as HTMLInputElement).scrollIntoView({
+          block: "center",
+          inline: "nearest",
+        }),
+      );
+      await this.humanPause(60, 180);
+      const clicked = await this.realMouseClick(page, rawInput);
+      if (!clicked) {
+        await rawInput.click();
+      }
+      await this.humanPause(150, 400);
+      await input.evaluate((el) => {
+        const inp = el as HTMLInputElement;
+        inp.value = "";
+      });
+      await this.typeTextHumanInput(input, value);
+      await input.evaluate((el) => {
+        const inp = el as HTMLInputElement;
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    } finally {
+      await rawInput.dispose().catch(() => undefined);
+    }
   }
 
   private async readLinkedInAssociatedMembersCount(

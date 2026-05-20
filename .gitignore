@@ -13,6 +13,9 @@ yarn-error.log*
 lerna-debug.log*
 google_credentials.json
 .libvips-cache
+.cache/
+.cache/*
+.cache
 
 # OS
 .DS_Store

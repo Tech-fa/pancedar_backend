@@ -131,8 +131,8 @@ export class BrowserService {
           break;
         }
       }
-    } finally {
-      await browser?.close();
+    }finally {
+      // await browser?.close().catch(() => undefined);
     }
 
     return out;

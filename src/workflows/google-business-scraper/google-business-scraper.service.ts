@@ -51,7 +51,8 @@ export class GoogleBusinessScraperService {
 
   /**
    * Loads Maps URL and keywords from the workflow step, creates a workflow run,
-   * streams each discovered website to `PROCESS_WEBSITE`, then marks the run completed.
+   * collects all discovered websites, queues them for `PROCESS_WEBSITE`, then marks
+   * the run completed when the last queued site finishes.
    */
   async runScrapeForWorkflow(
     user: UserRequest,
@@ -101,7 +102,6 @@ export class GoogleBusinessScraperService {
     });
     this.runWorkflow(
       user,
-      workflow,
       workflowRun,
       googleMapsUrl,
       normalizedKeywords,
@@ -110,27 +110,42 @@ export class GoogleBusinessScraperService {
 
   private async runWorkflow(
     user: UserRequest,
-    workflow: Workflow,
     workflowRun: WorkflowRun,
     googleMapsUrl: string,
     normalizedKeywords: string[],
   ): Promise<void> {
     try {
-      const websiteUrls = await this.realBrowser.scrapeGoogleMapsBusinessWebsiteLinks(
-        googleMapsUrl,
-        async (link, isLast) => {
-          await this.queuePublisher.publishProcessWebsite({
-            websiteUrl: link,
-            keywords: normalizedKeywords,
-            googleMapsSearchUrl: googleMapsUrl,
-            teamId: user.teamId,
-            workflowRunId: workflowRun.id,
-            isLast,
-          });
-        },
-      );
+      const websiteUrls =
+        await this.realBrowser.scrapeGoogleMapsBusinessWebsiteLinks(
+          googleMapsUrl,
+        );
 
-      const now = Date.now();
+      if (!websiteUrls.length) {
+        const now = Date.now();
+        await this.workflowService.updateWorkflowRun(workflowRun.id, {
+          status: WorkflowRunStatus.COMPLETED,
+          displayContext: {
+            ...(workflowRun.displayContext || {}),
+            completedAt: now,
+          },
+          updatedAt: now,
+        });
+        this.logger.log(
+          `[google-business-scraper] run ${workflowRun.id}: no sites found`,
+        );
+        return;
+      }
+
+      for (let i = 0; i < websiteUrls.length; i++) {
+        await this.queuePublisher.publishProcessWebsite({
+          websiteUrl: websiteUrls[i],
+          keywords: normalizedKeywords,
+          googleMapsSearchUrl: googleMapsUrl,
+          teamId: user.teamId,
+          workflowRunId: workflowRun.id,
+          isLast: i === websiteUrls.length - 1,
+        });
+      }
 
       this.logger.log(
         `[google-business-scraper] run ${workflowRun.id}: queued ${websiteUrls.length} site(s)`,

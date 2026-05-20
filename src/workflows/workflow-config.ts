@@ -16,6 +16,7 @@ export enum WorkflowType {
   BUSINESS_ASSISTANT_LINK_BOOKING = "business-assistant-link-booking",
   AUTOTRADER_NOTIFIER = "autotrader-notifier",
   GOOGLE_BUSINESS_SCRAPER = "google-business-scraper",
+  SEO_HELPER = "seo-helper",
 }
 
 export const workflowConfigs = {
@@ -111,12 +112,31 @@ export const workflowConfigs = {
   "google-business-scraper": {
     description:
       "Scrape Google Maps business listings for website links, then scan each site (sitemap or homepage) for keywords and record matches.",
-    steps: ["scrape-google-businesses"],
-    connectorsNeeded: [],
+    steps: [
+      "scrape-google-businesses",
+      "get-website-details",
+      "get-linkedin-outreach",
+    ],
+    connectorsNeeded: ["LinkedIn"],
     allowMultiple: true,
     entitiesNeeded: [],
     /** POST body `{ workflowId }` — used by the dashboard to trigger a run. */
     actionUrl: "google-business-scraper/scrape",
+  },
+  "seo-helper": {
+    description:
+      "Research related blogs on Google for a topic, generate a site blog post and LinkedIn post from your template, then publish to your git repo after approval.",
+    steps: [
+      "find-related-blogs",
+      "collect-research",
+      "clone-git-repo",
+      "generate-blog-content",
+      "await-approval",
+    ],
+    connectorsNeeded: ["Git Repo"],
+    allowMultiple: false,
+    entitiesNeeded: ["seo_blog_drafts"],
+    actionUrl: "seo-helper/run",
   },
   "phone-ordering-assistant": {
     description:
@@ -361,6 +381,31 @@ export const workflowStepConfigs = {
         required: true,
       },
     ],
+  },
+  "find-related-blogs": {
+    description:
+      "Topic to write about. The workflow searches Google for related blogs, drafts content from your git connector template, and waits for approval before pushing to pages/blog.",
+    fields: [
+      {
+        label: "Blog topic",
+        name: "topic",
+        type: "textarea",
+        required: true,
+      },
+    ],
+  },
+  "collect-research": {
+    description: "Collects Google blog research into a temporary workspace.",
+  },
+  "clone-git-repo": {
+    description: "Clones the linked git repository into the run workspace.",
+  },
+  "generate-blog-content": {
+    description:
+      "Uses the connector blog template and research to generate a site blog and LinkedIn post.",
+  },
+  "await-approval": {
+    description: "Review and approve the draft before it is committed to pages/blog.",
   },
 };
 

@@ -170,6 +170,15 @@ export const workflowPermission = {
   base_route: "workflows",
 };
 
+export const seoBlogDraftsPermission = {
+  subject: "seo_blog_drafts",
+  label: "SEO Blog Draft",
+  actions: actions,
+  service_tag: "workflows",
+  base_route: "seo-helper/drafts",
+  workflow_specific: true,
+};
+
 export const kijijiLinksPermission = {
   subject: "kijiji_links",
   label: "Kijiji Links",
@@ -251,6 +260,7 @@ export const permissions: {
   googleAccountsPermission,
   kijijiLinksPermission,
   chatWidgetPermission,
+  seoBlogDraftsPermission,
 };
 
 export const permissionTree: {
@@ -268,6 +278,7 @@ export const permissionTree: {
   agentCommunicationPermission,
   googleAccountsPermission,
   chatWidgetPermission,
+  seoBlogDraftsPermission,
 };
 
 export const defaultPermissionGroups = [

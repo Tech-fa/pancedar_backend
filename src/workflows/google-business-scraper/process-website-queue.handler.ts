@@ -34,7 +34,12 @@ export class ProcessWebsiteQueueHandler {
     private readonly workflowService: WorkflowService,
   ) {}
 
-  @RabbitSubscribe(getListening(Events.PROCESS_WEBSITE))
+  @RabbitSubscribe({
+    ...getListening(Events.PROCESS_WEBSITE),
+    queueOptions: {
+      channel: "process-website",
+    },
+  })
   @Public()
   async handle(payload: ProcessWebsiteQueuePayload): Promise<void> {
     if (!payload?.websiteUrl?.trim()) {
@@ -72,7 +77,7 @@ export class ProcessWebsiteQueueHandler {
         browser,
         websiteRoot,
       );
-
+      await browser.close().catch(() => undefined);
       let rootEntity = await this.rootWebsiteRepo.findOne({
         where: {
           websiteUrl: websiteRoot,
@@ -145,9 +150,24 @@ export class ProcessWebsiteQueueHandler {
 
       if (rootEntity.linkedinUrl) {
         try {
+          const workflowRun = payload.workflowRunId
+            ? await this.workflowService.findWorkflowRunById(
+                payload.workflowRunId,
+              )
+            : null;
+          const linkedinConnector =
+            workflowRun?.workflow?.linkedConnectors?.find((c) =>
+              (c.connectorTypeId || "").toLowerCase().includes("linkedin"),
+            );
+          const linkedInCredentials =
+            await this.linkedInOutreach.credentialsFromConnector(
+              linkedinConnector,
+            );
+
           const outreach = await this.linkedInOutreach.runOutreach(
             rootEntity.linkedinUrl,
             payload.keywords,
+            linkedInCredentials,
           );
           if (
             outreach.linkedinContactProfileUrl ||

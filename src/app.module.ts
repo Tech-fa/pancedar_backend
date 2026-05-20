@@ -36,6 +36,7 @@ import { KijijiLinkTrackingModule } from './workflows/kiji-link-tracking/kijiji-
 import { CarletonParkingWorkflowModule } from './workflows/carleton-parking-workflow/carleton-parking-workflow.module';
 import { ChatWidgetModule } from './connector/chat-widget/chat-widget.module';
 import { GoogleBusinessScraperModule } from './workflows/google-business-scraper/google-business-scraper.module';
+import { SeoHelperModule } from './workflows/seo-helper/seo-helper.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -89,6 +90,7 @@ import { GoogleBusinessScraperModule } from './workflows/google-business-scraper
     CarletonParkingWorkflowModule,
     ChatWidgetModule,
     GoogleBusinessScraperModule,
+    SeoHelperModule,
   ],
   controllers: [AppController],
   providers: [

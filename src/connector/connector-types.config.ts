@@ -172,6 +172,26 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
     multiLink: false,
   },
   {
+    name: "LinkedIn",
+    serviceName: "linkedin",
+    description: "LinkedIn connector for LinkedIn outreach.",
+    fields: [
+      {
+        name: "LinkedIn Username",
+        type: "text",
+        required: true,
+        isPrimaryIdentifier: true,
+      },
+      {
+        name: "LinkedIn Password",
+        type: "text",
+        required: true,
+        secret: true,
+      },
+    ],
+    multiLink: true,
+  },
+  {
     name: "Kijiji",
     serviceName: "kijiji",
     description: "Kijiji search connector for searching for items on Kijiji.",
@@ -184,6 +204,27 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
       },
     ],
     multiLink: true,
+  },
+  {
+    name: "Git Repo",
+    serviceName: "gitRepo",
+    description:
+      "Git repository for publishing approved blog posts under pages/blog. Use an HTTPS URL with an embedded access token.",
+    fields: [
+      {
+        name: "Git Repo URL",
+        type: "text",
+        required: true,
+        isPrimaryIdentifier: true,
+        secret: true,
+      },
+      {
+        name: "Blog File Template",
+        type: "textarea",
+        required: true,
+      },
+    ],
+    multiLink: false,
   },
 
 ];

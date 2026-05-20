@@ -628,7 +628,7 @@ export class WorkflowService {
   async findWorkflowRunById(runId: string): Promise<WorkflowRun> {
     return this.workflowRunRepo.findOne({
       where: { id: runId },
-      relations: ["workflow"],
+      relations: ["workflow","workflow.linkedConnectors"],
     });
   }
 

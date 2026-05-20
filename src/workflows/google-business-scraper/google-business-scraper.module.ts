@@ -7,6 +7,7 @@ import { GoogleFlaggedPage } from "./google-flagged-page.entity";
 import { GoogleRootWebsite } from "./google-root-website.entity";
 import { GoogleBusinessScraperController } from "./google-business-scraper.controller";
 import { GoogleBusinessScraperService } from "./google-business-scraper.service";
+import { LinkedInOutreachController } from "./linkedin-outreach.controller";
 import { LinkedInOutreachService } from "./linkedin-outreach.service";
 import { ProcessWebsiteQueueHandler } from "./process-website-queue.handler";
 
@@ -17,7 +18,7 @@ import { ProcessWebsiteQueueHandler } from "./process-website-queue.handler";
     ResourceIngestionModule,
     WorkflowModule,
   ],
-  controllers: [GoogleBusinessScraperController],
+  controllers: [GoogleBusinessScraperController, LinkedInOutreachController],
   providers: [
     GoogleBusinessScraperService,
     LinkedInOutreachService,
