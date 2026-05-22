@@ -37,6 +37,7 @@ import { CarletonParkingWorkflowModule } from './workflows/carleton-parking-work
 import { ChatWidgetModule } from './connector/chat-widget/chat-widget.module';
 import { GoogleBusinessScraperModule } from './workflows/google-business-scraper/google-business-scraper.module';
 import { SeoHelperModule } from './workflows/seo-helper/seo-helper.module';
+import { LinkedInSearchOutreachModule } from './workflows/linkedin-search-outreach/linkedin-search-outreach.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -91,6 +92,7 @@ import { SeoHelperModule } from './workflows/seo-helper/seo-helper.module';
     ChatWidgetModule,
     GoogleBusinessScraperModule,
     SeoHelperModule,
+    LinkedInSearchOutreachModule,
   ],
   controllers: [AppController],
   providers: [

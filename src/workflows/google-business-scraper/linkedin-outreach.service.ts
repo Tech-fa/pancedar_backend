@@ -8,6 +8,8 @@ import {
 } from "../../resource-ingestion/real-browser";
 import { decrypt } from "../../util/helper-util";
 
+import type { Browser } from "rebrowser-puppeteer-core";
+
 const LINKEDIN_USERNAME_FIELD = "LinkedIn Username";
 const LINKEDIN_PASSWORD_FIELD = "LinkedIn Password";
 
@@ -78,6 +80,44 @@ export class LinkedInOutreachService {
 
     return {
       linkedinContactProfileUrl: selected.profileUrl,
+      linkedinOutreachSummary: summary,
+    };
+  }
+
+  /**
+   * Visits one member profile's recent activity and drafts outreach from workflow keywords.
+   */
+  async runOutreachForProfile(
+    profile: LinkedInPersonProfile,
+    keywords: string[],
+    credentials?: LinkedInAuthCredentials,
+    browser?: Browser,
+  ): Promise<LinkedInOutreachResult> {
+    const empty: LinkedInOutreachResult = {
+      linkedinContactProfileUrl: profile.profileUrl,
+      linkedinOutreachSummary: null,
+    };
+
+    if (!profile.profileUrl?.trim()) {
+      return { ...empty, skipReason: "no_profile_url" };
+    }
+
+    const activitySnippets =
+      await this.realBrowser.collectLinkedInProfileActivitySnippets(
+        profile.profileUrl,
+        5,
+        credentials,
+        browser
+      );
+
+    const summary = await this.summarizeOutreachMessage(
+      keywords,
+      profile,
+      activitySnippets,
+    );
+
+    return {
+      linkedinContactProfileUrl: profile.profileUrl,
       linkedinOutreachSummary: summary,
     };
   }

@@ -24,6 +24,6 @@ import { ProcessWebsiteQueueHandler } from "./process-website-queue.handler";
     LinkedInOutreachService,
     ProcessWebsiteQueueHandler,
   ],
-  exports: [GoogleBusinessScraperService],
+  exports: [GoogleBusinessScraperService, LinkedInOutreachService],
 })
 export class GoogleBusinessScraperModule {}

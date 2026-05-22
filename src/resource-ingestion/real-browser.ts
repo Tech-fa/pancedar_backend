@@ -10,6 +10,7 @@ const NAVIGATION_TIMEOUT_MS = 30_000;
 const LINKEDIN_NAVIGATION_TIMEOUT_MS = 45_000;
 const MAX_LINKEDIN_SHOW_MORE_CLICKS = 25;
 const MAX_LINKEDIN_ACTIVITY_SCROLL_ROUNDS = 12;
+const MAX_LINKEDIN_SEARCH_PAGES = 10;
 const CARLETON_PARKING_URL = "https://carletonparking.com";
 
 export type LinkedInPersonProfile = {
@@ -201,6 +202,25 @@ export class RealBrowserService {
     }
   }
 
+  async launchBrowser(): Promise<Browser> {
+    const userDataDir = await this.resolveUserDataDir();
+    const { browser } = await connect({
+      headless: process.env.HEADLESS === "true",
+      args: getPuppeteerArgs(),
+      customConfig: {
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH
+          ? { chromePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+          : {}),
+        ...(userDataDir ? { userDataDir } : {}),
+      },
+      proxy: getProxyConfig(),
+      turnstile: false,
+      connectOption: { defaultViewport: null },
+      disableXvfb: process.env.DISABLE_XVFB === "true",
+    });
+    return browser;
+  }
+
   /**
    * Searches Google for blog posts related to `topic` and returns organic result
    * titles, URLs, and snippets (up to `maxResults`, default 8).
@@ -208,9 +228,7 @@ export class RealBrowserService {
   async searchGoogleRelatedBlogs(
     topic: string,
     maxResults = 8,
-  ): Promise<
-    Array<{ title: string; url: string; snippet: string }>
-  > {
+  ): Promise<Array<{ title: string; url: string; snippet: string }>> {
     const query = `${topic.trim()} blog`;
     const encodedQuery = encodeURIComponent(query);
     const searchUrl = `https://www.google.com/search?q=${encodedQuery}&hl=en`;
@@ -246,8 +264,11 @@ export class RealBrowserService {
 
       const results = await page.evaluate(
         (limit, encodedQueryArg) => {
-          const out: Array<{ title: string; url: string; snippet: string }> =
-            [];
+          const out: Array<{
+            title: string;
+            url: string;
+            snippet: string;
+          }> = [];
           const seen = new Set<string>();
 
           const unwrapGoogleRedirect = (href: string): string | null => {
@@ -505,12 +526,10 @@ export class RealBrowserService {
         };
       }
 
-      const associatedMembersCount =
-        await this.readLinkedInAssociatedMembersCount(page);
-      if (
-        associatedMembersCount !== null &&
-        associatedMembersCount >= 100
-      ) {
+      const associatedMembersCount = await this.readLinkedInAssociatedMembersCount(
+        page,
+      );
+      if (associatedMembersCount !== null && associatedMembersCount >= 100) {
         this.logger.log(
           `[linkedin] skipping people scrape: ${associatedMembersCount} associated members`,
         );
@@ -557,6 +576,13 @@ export class RealBrowserService {
     }
   }
 
+  /** Opens a new tab on an existing browser (caller owns browser lifecycle). */
+  async createPageFromBrowser(browser: Browser): Promise<Page> {
+    const page = await browser.newPage();
+    this.attachNetworkDebugLogging(page);
+    return page;
+  }
+
   /**
    * Visits a member profile's `/recent-activity/all/` feed, scrolls the finite-scroll
    * container, and returns up to `maxSnippets` post texts from `feed-shared-update-v2`.
@@ -565,13 +591,21 @@ export class RealBrowserService {
     profileUrl: string,
     maxSnippets = 5,
     credentials?: LinkedInAuthCredentials,
+    browser?: Browser,
   ): Promise<string[]> {
     const activityUrl = this.toLinkedInRecentActivityUrl(profileUrl);
-    let browser: Browser | null = null;
+    const launchedHere = !browser;
+    let page: Page | null = null;
+
     try {
-      const page = await this.openRealBrowserPage((b) => {
-        browser = b;
-      });
+      if (!browser) {
+        page = await this.openRealBrowserPage((b) => {
+          browser = b;
+        });
+      } else {
+        page = await this.createPageFromBrowser(browser);
+      }
+
       await page.goto(activityUrl, {
         waitUntil: "domcontentloaded",
         timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
@@ -590,7 +624,11 @@ export class RealBrowserService {
       const collected: string[] = [];
       const seen = new Set<string>();
 
-      for (let round = 0; round < MAX_LINKEDIN_ACTIVITY_SCROLL_ROUNDS; round++) {
+      for (
+        let round = 0;
+        round < MAX_LINKEDIN_ACTIVITY_SCROLL_ROUNDS;
+        round++
+      ) {
         const batch = await page.evaluate(() => {
           const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
           const results: string[] = [];
@@ -637,11 +675,116 @@ export class RealBrowserService {
       );
       throw error;
     } finally {
+      await page?.close().catch(() => undefined);
+      if (launchedHere && browser) {
+        await browser.close().catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * Opens a LinkedIn people search URL, signs in when needed, and collects profile
+   * links from the first `maxPages` result pages (`[role="list"]` → `li` → anchor).
+   */
+  async collectLinkedInSearchPeopleProfileUrls(
+    searchUrl: string,
+    maxPages = MAX_LINKEDIN_SEARCH_PAGES,
+    credentials?: LinkedInAuthCredentials,
+  ): Promise<LinkedInPeopleScrapeResult> {
+    const trimmed = searchUrl?.trim();
+    if (!trimmed) {
+      return {
+        associatedMembersCount: null,
+        profiles: [],
+        skipReason: "no_search_url",
+      };
+    }
+
+    const pageLimit = Math.min(
+      Math.max(maxPages, 1),
+      MAX_LINKEDIN_SEARCH_PAGES,
+    );
+    let browser: Browser | null = null;
+    try {
+      const page = await this.openRealBrowserPage((b) => {
+        browser = b;
+      });
+
+      const allProfiles: LinkedInPersonProfile[] = [];
+      const seenUrls = new Set<string>();
+
+      for (let pageNum = 1; pageNum <= pageLimit; pageNum++) {
+        const pageUrl = this.toLinkedInSearchPageUrl(trimmed, pageNum);
+        await page.goto(pageUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+        });
+        await this.humanPause(900, 1800);
+        this.logger.log(
+          `[linkedin] visiting search page ${pageNum}/${pageLimit}: ${pageUrl}`,
+        );
+        const sessionReady = await this.ensureLinkedInSession(
+          page,
+          credentials,
+          pageUrl,
+        );
+        if (!sessionReady) {
+          return {
+            associatedMembersCount: null,
+            profiles: allProfiles,
+            skipReason: allProfiles.length
+              ? undefined
+              : "linkedin_auth_required",
+          };
+        }
+
+        await page
+          .waitForSelector('[role="list"] li a[href*="/in/"]', {
+            timeout: 25_000,
+          })
+          .catch(() => undefined);
+        await this.humanPause(400, 900);
+        await this.scrollLinkedInSearchResultsHuman(page);
+
+        const batch = await this.readLinkedInSearchPeopleListProfiles(page);
+        for (const profile of batch) {
+          if (seenUrls.has(profile.profileUrl)) {
+            continue;
+          }
+          seenUrls.add(profile.profileUrl);
+          allProfiles.push(profile);
+        }
+
+        this.logger.log(
+          `[linkedin] search page ${pageNum}/${pageLimit}: +${batch.length} profile(s), total ${allProfiles.length}`,
+        );
+
+        if (pageNum < pageLimit) {
+          const hasNext = await this.navigateLinkedInSearchNextPage(
+            page,
+            trimmed,
+            pageNum + 1,
+          );
+          if (!hasNext) {
+            break;
+          }
+          await this.humanPause(700, 1400);
+        }
+      }
+
+      return { associatedMembersCount: null, profiles: allProfiles };
+    } catch (error) {
+      this.logger.error(
+        `LinkedIn search people scrape failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw error;
+    } finally {
       await browser?.close().catch(() => undefined);
     }
   }
 
-  private async openRealBrowserPage(
+  async openRealBrowserPage(
     onBrowser: (browser: Browser) => void,
   ): Promise<Page> {
     const userDataDir = await this.resolveUserDataDir();
@@ -697,6 +840,120 @@ export class RealBrowserService {
         ? t
         : `${t}/recent-activity/all`;
     }
+  }
+
+  private toLinkedInSearchPageUrl(searchUrl: string, pageNum: number): string {
+    try {
+      const u = new URL(searchUrl.trim());
+      if (pageNum > 1) {
+        u.searchParams.set("page", String(pageNum));
+      } else {
+        u.searchParams.delete("page");
+      }
+      return u.href;
+    } catch {
+      if (pageNum <= 1) {
+        return searchUrl.trim();
+      }
+      const sep = searchUrl.includes("?") ? "&" : "?";
+      return `${searchUrl.trim()}${sep}page=${pageNum}`;
+    }
+  }
+
+  private async readLinkedInSearchPeopleListProfiles(
+    page: Page,
+  ): Promise<LinkedInPersonProfile[]> {
+    return await page.evaluate(() => {
+      const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+      const profiles: Array<{
+        name: string;
+        position: string;
+        profileUrl: string;
+      }> = [];
+      const seenUrls = new Set<string>();
+
+      document.querySelectorAll('[role="list"]').forEach((list) => {
+        list.querySelectorAll("li").forEach((item) => {
+          const anchor = item.querySelector(
+            'a[href*="/in/"]',
+          ) as HTMLAnchorElement | null;
+          if (!anchor?.href) {
+            return;
+          }
+          let profileUrl = anchor.href.split("?")[0];
+          if (!profileUrl.includes("/in/") || seenUrls.has(profileUrl)) {
+            return;
+          }
+          seenUrls.add(profileUrl);
+
+          const name =
+            normalize(anchor.getAttribute("aria-label") || "") ||
+            normalize(anchor.textContent || "") ||
+            "LinkedIn member";
+
+          const subtitle = item.querySelector(
+            '.entity-result__primary-subtitle, .entity-result__secondary-subtitle, [data-test-id="subline"]',
+          );
+          const position = subtitle
+            ? normalize(subtitle.textContent || "")
+            : "";
+
+          profiles.push({ name, position, profileUrl });
+        });
+      });
+
+      return profiles;
+    });
+  }
+
+  private async scrollLinkedInSearchResultsHuman(page: Page): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => {
+        window.scrollBy(0, Math.floor(window.innerHeight * 0.55));
+      });
+      await this.humanPause(350, 750);
+    }
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+    await this.humanPause(200, 450);
+  }
+
+  private async navigateLinkedInSearchNextPage(
+    page: Page,
+    searchUrl: string,
+    nextPageNum: number,
+  ): Promise<boolean> {
+    const clicked = await page.evaluate(() => {
+      const nextBtn = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Next"], button[aria-label="Next page"]',
+      );
+      if (!nextBtn || nextBtn.disabled) {
+        return false;
+      }
+      nextBtn.scrollIntoView({ block: "center", inline: "nearest" });
+      nextBtn.click();
+      return true;
+    });
+
+    if (clicked) {
+      await page
+        .waitForNavigation({
+          waitUntil: "networkidle2",
+          timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+        })
+        .catch(() => undefined);
+      await this.humanPause(600, 1200);
+      return true;
+    }
+
+    const nextUrl = this.toLinkedInSearchPageUrl(searchUrl, nextPageNum);
+    await page.goto(nextUrl, {
+      waitUntil: "networkidle2",
+      timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+    });
+    await this.humanPause(700, 1300);
+    return true;
   }
 
   private async linkedinPageRequiresAuth(page: Page): Promise<boolean> {
@@ -806,9 +1063,7 @@ export class RealBrowserService {
 
       return !(await this.linkedinPageRequiresAuth(page));
     } catch (error) {
-      this.logger.warn(
-        `[linkedin] login failed: ${(error as Error).message}`,
-      );
+      this.logger.warn(`[linkedin] login failed: ${(error as Error).message}`);
       return false;
     }
   }
@@ -921,7 +1176,9 @@ export class RealBrowserService {
         if (!info) {
           return;
         }
-        const link = li.querySelector('a[href*="/in/"]') as HTMLAnchorElement | null;
+        const link = li.querySelector(
+          'a[href*="/in/"]',
+        ) as HTMLAnchorElement | null;
         if (!link?.href) {
           return;
         }
@@ -935,9 +1192,7 @@ export class RealBrowserService {
         seenUrls.add(profileUrl);
 
         const lines = Array.from(
-          info.querySelectorAll(
-            "span, div, a, p, [class*='profile-card']",
-          ),
+          info.querySelectorAll("span, div, a, p, [class*='profile-card']"),
         )
           .map((el) => normalize(el.textContent || ""))
           .filter((t) => t.length > 0);
@@ -977,9 +1232,7 @@ export class RealBrowserService {
     return await page.evaluate(() => {
       const scroller =
         document.querySelector(".scaffold-finite-scroll") instanceof HTMLElement
-          ? (document.querySelector(
-              ".scaffold-finite-scroll",
-            ) as HTMLElement)
+          ? (document.querySelector(".scaffold-finite-scroll") as HTMLElement)
           : null;
       if (!scroller) {
         window.scrollBy(0, Math.floor(window.innerHeight * 0.75));

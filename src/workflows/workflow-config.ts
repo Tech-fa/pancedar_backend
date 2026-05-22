@@ -17,6 +17,7 @@ export enum WorkflowType {
   AUTOTRADER_NOTIFIER = "autotrader-notifier",
   GOOGLE_BUSINESS_SCRAPER = "google-business-scraper",
   SEO_HELPER = "seo-helper",
+  LINKEDIN_SEARCH_OUTREACH = "linkedin-search-outreach",
 }
 
 export const workflowConfigs = {
@@ -137,6 +138,15 @@ export const workflowConfigs = {
     allowMultiple: false,
     entitiesNeeded: ["seo_blog_drafts"],
     actionUrl: "seo-helper/run",
+  },
+  "linkedin-search-outreach": {
+    description:
+      "Scrape LinkedIn people search results (first 10 pages), then visit each profile and draft personalized outreach from recent activity and your keywords.",
+    steps: ["linkedin-people-search", "collect-profile-outreach"],
+    connectorsNeeded: ["LinkedIn"],
+    allowMultiple: true,
+    entitiesNeeded: ["linkedin_leads"],
+    actionUrl: "linkedin-search-outreach/run",
   },
   "phone-ordering-assistant": {
     description:
@@ -406,6 +416,28 @@ export const workflowStepConfigs = {
   },
   "await-approval": {
     description: "Review and approve the draft before it is committed to pages/blog.",
+  },
+  "linkedin-people-search": {
+    description:
+      "LinkedIn people search URL plus keywords used to tailor outreach messages.",
+    fields: [
+      {
+        label: "LinkedIn search URL",
+        name: "searchUrl",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Keywords (comma or newline separated)",
+        name: "keywords",
+        type: "textarea",
+        required: true,
+      },
+    ],
+  },
+  "collect-profile-outreach": {
+    description:
+      "Visits each collected profile, reads recent activity, and drafts outreach copy.",
   },
 };
 
