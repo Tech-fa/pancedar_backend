@@ -75,14 +75,15 @@ export class LinkedInSearchOutreachService {
         "LIGHTSAIL_LINKEDIN_SEARCH_OUTREACH_DOCKER_SCRIPT",
       ) ?? DEFAULT_LINKEDIN_SEARCH_OUTREACH_DOCKER_COMPOSE_SCRIPT;
 
-    const lightSailInstanceId =
-      await this.lightsailService.createInstanceFromSnapshot({
+    const lightSailInstanceId = await this.lightsailService.createInstanceFromSnapshot(
+      {
         instanceName,
         bundleId,
         envVars: {
           WORKFLOW_RUN_ID: workflowRun.id,
           SCRAPER_SECRET: scraperSecret,
           API_URL: apiUrl,
+          TEAM_ID: workflow.teamId,
         },
         dockerComposeScript,
         tags: [
@@ -92,7 +93,8 @@ export class LinkedInSearchOutreachService {
           { key: "workflow-type", value: LINKEDIN_SEARCH_OUTREACH_TYPE },
           { key: "team-id", value: workflow.teamId },
         ],
-      });
+      },
+    );
 
     await this.workflowService.updateWorkflowRun(workflowRun.id, {
       lightSailInstanceId,

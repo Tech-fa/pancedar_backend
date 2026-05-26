@@ -6,8 +6,11 @@ import {
 import { InjectModel } from "@nestjs/mongoose";
 import { createHmac, timingSafeEqual } from "crypto";
 import { Model } from "mongoose";
+import { S3Service } from "../common/s3.service";
+import { Connector } from "../connector/connector.entity";
 import { Events } from "../queue/queue-constants";
 import { QueuePublisher } from "../queue/queue.publisher";
+import { decrypt } from "../util/helper-util";
 import { workflowConfigs } from "../workflows/workflow-config";
 import { WorkflowService } from "../workflows/workflow.service";
 import {
@@ -17,6 +20,12 @@ import {
 import { TeamService } from "./team.service";
 
 const TEAM_PROCESS_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
+const FACEBOOK_EMAIL_FIELD = "Facebook Email";
+const FACEBOOK_PASSWORD_FIELD = "Facebook Password";
+const FACEBOOK_NAME_FIELD = "Facebook Name";
+const PROXY_SERVER_FIELD = "Proxy Server";
+const PROXY_USERNAME_FIELD = "Proxy Username";
+const PROXY_PASSWORD_FIELD = "Proxy Password";
 
 interface TeamProcessAuthHeaders {
   teamId?: string;
@@ -40,6 +49,7 @@ export class TeamProcessingService {
     private readonly teamService: TeamService,
     private readonly workflowService: WorkflowService,
     private readonly queuePublisher: QueuePublisher,
+    private readonly s3Service: S3Service,
     @InjectModel(KijijiLink.name)
     private readonly kijijiLinkModel: Model<KijijiLinkDocument>,
   ) {}
@@ -56,8 +66,8 @@ export class TeamProcessingService {
     );
     const scrapingByWorkflowType = new Map(scrapingEntries);
 
-    return workflows
-      .map((workflow) => {
+    const mapped = await Promise.all(
+      workflows.map(async (workflow) => {
         const scraping = scrapingByWorkflowType.get(workflow.workflowType);
         if (!scraping) {
           return null;
@@ -71,21 +81,31 @@ export class TeamProcessingService {
           return null;
         }
 
-        return {
+        const base = {
           workflowId: workflow.id,
           workflowType: workflow.workflowType,
           url,
           linkType: scraping.linkType,
           steps: workflow.steps,
         };
-      })
-      .filter(Boolean)
-      .filter((workflow) => {
-        if (!type) {
-          return true;
+
+        if (scraping.linkType !== "facebook") {
+          return base;
         }
-        return workflow?.linkType === type;
-      });
+
+        return {
+          ...base,
+          ...(await this.resolveFacebookScraperExtras(workflow)),
+        };
+      }),
+    );
+
+    return mapped.filter(Boolean).filter((workflow) => {
+      if (!type) {
+        return true;
+      }
+      return workflow?.linkType === type;
+    });
   }
 
   async processLinks(
@@ -215,6 +235,144 @@ export class TeamProcessingService {
 
   private buildSignaturePayload(teamId: string, timestamp: string): string {
     return `${teamId}:${timestamp}`;
+  }
+
+  private async resolveFacebookScraperExtras(workflow: {
+    id: string;
+    linkedConnectors?: Connector[];
+  }): Promise<{
+    facebookCredentials?: {
+      username: string;
+      password: string;
+      name: string;
+      proxyServer?: string;
+      proxyUsername?: string;
+      proxyPassword?: string;
+    };
+    browserUserDataKey: string;
+    browserUserDataDownloadUrl?: string;
+    browserUserDataUploadUrl: string;
+  }> {
+    const browserUserData = await this.resolveBrowserUserDataAccess(
+      workflow.id,
+    );
+    const facebookCredentials = await this.resolveFacebookCredentials(
+      workflow.linkedConnectors,
+    );
+
+    return {
+      ...browserUserData,
+      ...(facebookCredentials ? { facebookCredentials } : {}),
+    };
+  }
+
+  private async resolveBrowserUserDataAccess(
+    workflowId: string,
+  ): Promise<{
+    browserUserDataKey: string;
+    browserUserDataDownloadUrl?: string;
+    browserUserDataUploadUrl: string;
+  }> {
+    const browserUserDataKey = `browser-data/${workflowId}.tar.gz`;
+    const browserUserDataUploadUrl = await this.s3Service.getSignedUrlForUpload(
+      browserUserDataKey,
+    );
+    if (!browserUserDataUploadUrl) {
+      throw new BadRequestException(
+        "Could not create browser user data upload URL",
+      );
+    }
+
+    let browserUserDataDownloadUrl: string | undefined;
+    const exists = await this.s3Service.objectExists(browserUserDataKey);
+    if (exists) {
+      browserUserDataDownloadUrl =
+        (await this.s3Service.getSignedUrlForDownload(browserUserDataKey)) ??
+        undefined;
+    }
+
+    return {
+      browserUserDataKey,
+      browserUserDataDownloadUrl,
+      browserUserDataUploadUrl,
+    };
+  }
+
+  private async resolveFacebookCredentials(
+    connectors: Connector[] | undefined,
+  ): Promise<
+    | {
+        username: string;
+        password: string;
+        name: string;
+        proxyServer?: string;
+        proxyUsername?: string;
+        proxyPassword?: string;
+      }
+    | undefined
+  > {
+    const connector = connectors?.find((c) =>
+      (c.connectorTypeId || "").toLowerCase().includes("facebook"),
+    );
+    if (!connector?.credentials) {
+      return undefined;
+    }
+
+    const username = String(
+      connector.credentials[FACEBOOK_EMAIL_FIELD] ?? "",
+    ).trim();
+    const name = String(
+      connector.credentials[FACEBOOK_NAME_FIELD] ?? "",
+    ).trim();
+    const encryptedPassword = connector.credentials[FACEBOOK_PASSWORD_FIELD];
+    if (!username || !encryptedPassword) {
+      return undefined;
+    }
+
+    try {
+      const password = await decrypt(String(encryptedPassword));
+      const trimmed = password?.trim();
+      if (!trimmed) {
+        return undefined;
+      }
+
+      const proxyServer = String(
+        connector.credentials[PROXY_SERVER_FIELD] ?? "",
+      ).trim();
+      const proxyUsername = String(
+        connector.credentials[PROXY_USERNAME_FIELD] ?? "",
+      ).trim();
+      const proxyPassword = await this.decryptConnectorSecret(
+        connector.credentials[PROXY_PASSWORD_FIELD],
+      );
+
+      return {
+        username,
+        password: trimmed,
+        name,
+        ...(proxyServer ? { proxyServer } : {}),
+        ...(proxyUsername ? { proxyUsername } : {}),
+        ...(proxyPassword ? { proxyPassword } : {}),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async decryptConnectorSecret(
+    value: unknown,
+  ): Promise<string | undefined> {
+    if (value == null || String(value).trim() === "") {
+      return undefined;
+    }
+
+    try {
+      const decrypted = await decrypt(String(value));
+      const trimmed = decrypted?.trim();
+      return trimmed || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private normalizeLinks(links: unknown): string[] {

@@ -18,6 +18,7 @@ interface CreateWorkflowScraperInstanceOptions {
   teamId: string;
   linkType: string;
   scraperSecret: string;
+  dockerRunScript?: string;
 }
 
 export interface ConfigureLightsailInstanceOptions {
@@ -34,7 +35,7 @@ export interface CreateLightsailInstanceOptions
   setupDelayMs?: number;
 }
 
-const DEFAULT_INSTANCE_SETUP_DELAY_MS = 10_000;
+const DEFAULT_INSTANCE_SETUP_DELAY_MS = 20_000;
 const DEFAULT_ENV_FILE_PATH = "$HOME/myapp/.env";
 
 @Injectable()
@@ -117,6 +118,7 @@ export class LightsailService {
     teamId,
     linkType,
     scraperSecret,
+    dockerRunScript,
   }: CreateWorkflowScraperInstanceOptions): Promise<string> {
     const instanceName = this.buildInstanceName(workflowId, linkType);
     const apiUrl = this.getRequiredConfig("API_URL");
@@ -134,7 +136,8 @@ export class LightsailService {
         TEAM_PROCESSES_API_URL: apiUrl,
         API_URL: apiUrl,
       },
-      dockerComposeScript: this.buildDefaultDockerComposeScript(),
+      dockerComposeScript:
+        dockerRunScript ?? this.buildDefaultDockerComposeScript(),
       tags: this.buildTags({
         workflowId,
         workflowType,
@@ -180,6 +183,7 @@ export class LightsailService {
       teamId: string;
       linkType: string;
       scraperSecret: string;
+      dockerRunScript?: string;
     },
   ): Promise<void> {
     const apiUrl = this.getRequiredConfig("API_URL");
@@ -194,7 +198,8 @@ export class LightsailService {
         TEAM_PROCESSES_API_URL: apiUrl,
         API_URL: apiUrl,
       },
-      dockerComposeScript: this.buildDefaultDockerComposeScript(),
+      dockerComposeScript:
+        scraperObj.dockerRunScript ?? this.buildDefaultDockerComposeScript(),
     });
   }
 

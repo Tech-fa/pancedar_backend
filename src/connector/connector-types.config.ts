@@ -192,6 +192,48 @@ export const connectorTypesConfig: ConnectorTypeConfig[] = [
     multiLink: true,
   },
   {
+    name: "Facebook",
+    serviceName: "facebook",
+    description:
+      "Facebook account for Marketplace scraping (session is also saved to browser profile storage).",
+    fields: [
+      {
+        name: "Facebook Email",
+        type: "text",
+        required: true,
+        isPrimaryIdentifier: true,
+      },
+      {
+        name: "Facebook Password",
+        type: "text",
+        required: true,
+        secret: true,
+      },
+      {
+        name: "Facebook Name",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "Proxy Server",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "Proxy Username",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "Proxy Password",
+        type: "text",
+        required: false,
+        secret: true,
+      },
+    ],
+    multiLink: true,
+  },
+  {
     name: "Kijiji",
     serviceName: "kijiji",
     description: "Kijiji search connector for searching for items on Kijiji.",

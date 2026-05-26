@@ -81,13 +81,14 @@ export const workflowConfigs = {
     description:
       "Facebook notifier that notifies you when new items are posted on Facebook.",
     steps: ["search-facebook", "notify"],
-    connectorsNeeded: ["Kijiji"],
+    connectorsNeeded: ["Kijiji", "Facebook"],
     allowMultiple: true,
     entitiesNeeded: ["kijiji_links"],
     scraping: {
       linkType: "facebook",
       stepName: "search-facebook",
       urlField: "searchLink",
+      dockerRunScript: `docker run --env-file .env -e HEADLESS=false -e FACEBOOK_CAPTCHA_WAIT_MS=300000 node dist/facebook-marketplace-tracker-main.js`,
     },
   },
   "cargurus-notifier": {

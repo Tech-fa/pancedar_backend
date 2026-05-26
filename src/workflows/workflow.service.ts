@@ -46,6 +46,7 @@ export class WorkflowService {
     const workflows = await this.workflowRepo.find();
     for (const workflow of workflows) {
       if (workflow.lightSailInstanceId) {
+        const config = workflowConfigs[workflow.workflowType];
         await this.lightsailService.runDockerComposeRefreshOnInstance(
           workflow.lightSailInstanceId,
           {
@@ -54,6 +55,7 @@ export class WorkflowService {
             teamId: workflow.teamId,
             linkType: workflowConfigs[workflow.workflowType].scraping?.linkType,
             scraperSecret: await this.getScraperSecret(workflow.teamId),
+            dockerRunScript: config.scraping.dockerRunScript,
           },
         );
       }
@@ -116,6 +118,7 @@ export class WorkflowService {
         workflowType: In(workflowTypes),
         teamId,
       },
+      relations: ["linkedConnectors"],
     });
   }
 
@@ -203,7 +206,9 @@ export class WorkflowService {
       .createQueryBuilder("workflow_run")
       .innerJoinAndSelect("workflow_run.workflow", "workflow")
       .andWhere("workflow.id = :workflowId", { workflowId })
-      .andWhere("workflow_run.status = :status", { status: WorkflowRunStatus.PENDING })
+      .andWhere("workflow_run.status = :status", {
+        status: WorkflowRunStatus.PENDING,
+      })
       .andWhere(
         "JSON_CONTAINS(workflow_run.context, CAST(:context AS JSON)) AND JSON_CONTAINS(CAST(:context AS JSON), workflow_run.context)",
         { context: JSON.stringify(context) },
@@ -484,7 +489,7 @@ export class WorkflowService {
     if (
       workflow.linkedConnectors?.length &&
       !workflow.lightSailInstanceId &&
-      config.scraping?.linkType && 
+      config.scraping?.linkType &&
       process.env.NODE_ENV === "production"
     ) {
       workflow.lightSailInstanceId = await this.lightsailService.createWorkflowScraperInstance(
@@ -494,6 +499,7 @@ export class WorkflowService {
           teamId: workflow.teamId,
           linkType: config.scraping.linkType,
           scraperSecret: await this.getScraperSecret(workflow.teamId),
+          dockerRunScript: config.scraping.dockerRunScript,
         },
       );
     }
@@ -628,7 +634,7 @@ export class WorkflowService {
   async findWorkflowRunById(runId: string): Promise<WorkflowRun> {
     return this.workflowRunRepo.findOne({
       where: { id: runId },
-      relations: ["workflow","workflow.linkedConnectors"],
+      relations: ["workflow", "workflow.linkedConnectors"],
     });
   }
 
@@ -661,7 +667,10 @@ export class WorkflowService {
 
   private attachWorkflowActionUrl<T extends Workflow>(
     workflow: T,
-  ): T & { actionUrl: string | null; actionFields?: Array<Record<string, unknown>> } {
+  ): T & {
+    actionUrl: string | null;
+    actionFields?: Array<Record<string, unknown>>;
+  } {
     const cfg = workflowConfigs[workflow.workflowType] as
       | { actionUrl?: string; actionFields?: Array<Record<string, unknown>> }
       | undefined;
