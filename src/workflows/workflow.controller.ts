@@ -160,6 +160,28 @@ export class WorkflowController {
     );
   }
 
+  @Post(":id/stop")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["update"] })
+  async stop(@Req() req, @Res() res: Response, @Param("id") id: string) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.stopWorkflow(req.user, id),
+      res,
+      "Workflow stopped successfully",
+    );
+  }
+
+  @Post(":id/start")
+  @hasPermission({ subject: workflowPermission.subject, actions: ["update"] })
+  async start(@Req() req, @Res() res: Response, @Param("id") id: string) {
+    return formatResponse(
+      this.logger,
+      this.workflowService.startWorkflow(req.user, id),
+      res,
+      "Workflow started successfully",
+    );
+  }
+
   @Put(":id")
   @hasPermission({ subject: workflowPermission.subject, actions: ["update"] })
   async update(

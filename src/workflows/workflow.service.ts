@@ -45,6 +45,9 @@ export class WorkflowService {
   async deployAllScrapers(): Promise<void> {
     const workflows = await this.workflowRepo.find();
     for (const workflow of workflows) {
+      if (workflow.isStopped) {
+        continue;
+      }
       if (workflow.lightSailInstanceId) {
         const config = workflowConfigs[workflow.workflowType];
         await this.lightsailService.runDockerComposeRefreshOnInstance(
@@ -486,26 +489,69 @@ export class WorkflowService {
 
       workflow.linkedConnectors = connectors;
     }
+    await this.ensureLightsailInstance(workflow);
+
+    workflow.updatedAt = Date.now();
+    return this.workflowRepo.save(workflow);
+  }
+
+  async stopWorkflow(user: UserRequest, id: string): Promise<Workflow> {
+    const workflow = await this.workflowRepo.findOne({
+      where: { id, teamId: user.teamId },
+      relations: ["linkedConnectors"],
+    });
+    if (!workflow) {
+      throw new NotFoundException("Workflow not found");
+    }
+
+    if (workflow.lightSailInstanceId) {
+      await this.lightsailService.deleteInstance(workflow.lightSailInstanceId);
+      workflow.lightSailInstanceId = null;
+    }
+
+    workflow.isStopped = true;
+    workflow.updatedAt = Date.now();
+    const saved = await this.workflowRepo.save(workflow);
+    return this.attachWorkflowActionUrl(saved);
+  }
+
+  async startWorkflow(user: UserRequest, id: string): Promise<Workflow> {
+    const workflow = await this.workflowRepo.findOne({
+      where: { id, teamId: user.teamId },
+      relations: ["linkedConnectors"],
+    });
+    if (!workflow) {
+      throw new NotFoundException("Workflow not found");
+    }
+
+    workflow.isStopped = false;
+    await this.ensureLightsailInstance(workflow);
+    workflow.updatedAt = Date.now();
+    const saved = await this.workflowRepo.save(workflow);
+    return this.attachWorkflowActionUrl(saved);
+  }
+
+  private async ensureLightsailInstance(workflow: Workflow): Promise<void> {
+    if (workflow.isStopped || workflow.lightSailInstanceId) {
+      return;
+    }
+
+    const config = workflowConfigs[workflow.workflowType];
     if (
       workflow.linkedConnectors?.length &&
-      !workflow.lightSailInstanceId &&
       config.scraping?.linkType &&
       process.env.NODE_ENV === "production"
     ) {
-      workflow.lightSailInstanceId = await this.lightsailService.createWorkflowScraperInstance(
-        {
+      workflow.lightSailInstanceId =
+        await this.lightsailService.createWorkflowScraperInstance({
           workflowId: workflow.id,
           workflowType: workflow.workflowType,
           teamId: workflow.teamId,
           linkType: config.scraping.linkType,
           scraperSecret: await this.getScraperSecret(workflow.teamId),
           dockerRunScript: config.scraping.dockerRunScript,
-        },
-      );
+        });
     }
-
-    workflow.updatedAt = Date.now();
-    return this.workflowRepo.save(workflow);
   }
 
   private async getScraperSecret(teamId: string): Promise<string> {

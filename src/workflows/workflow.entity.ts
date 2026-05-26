@@ -41,6 +41,9 @@ export class Workflow {
   @Column({ name: "light_sail_instance_id", type: "varchar", length: 255, nullable: true })
   lightSailInstanceId: string | null;
 
+  @Column({ name: "is_stopped", type: "boolean", default: false })
+  isStopped: boolean;
+
   @Column({
     name: "created_at",
     type: "bigint",
