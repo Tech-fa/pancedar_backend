@@ -53,4 +53,12 @@ export class WorkflowRun {
 
   @Column({ name: "explanation", type: "json", nullable: true })
   explanation: Explanation;
+
+  @Column({
+    name: "light_sail_instance_id",
+    type: "varchar",
+    length: 255,
+    nullable: true,
+  })
+  lightSailInstanceId: string | null;
 }

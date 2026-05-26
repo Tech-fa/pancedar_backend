@@ -20,6 +20,23 @@ interface CreateWorkflowScraperInstanceOptions {
   scraperSecret: string;
 }
 
+export interface ConfigureLightsailInstanceOptions {
+  envVars: Record<string, string>;
+  dockerComposeScript: string;
+  envFilePath?: string;
+}
+
+export interface CreateLightsailInstanceOptions
+  extends ConfigureLightsailInstanceOptions {
+  instanceName: string;
+  bundleId: string;
+  tags?: Tag[];
+  setupDelayMs?: number;
+}
+
+const DEFAULT_INSTANCE_SETUP_DELAY_MS = 10_000;
+const DEFAULT_ENV_FILE_PATH = "$HOME/myapp/.env";
+
 @Injectable()
 export class LightsailService {
   private readonly client: LightsailClient;
@@ -46,14 +63,15 @@ export class LightsailService {
     });
   }
 
-  async createWorkflowScraperInstance({
-    workflowId,
-    workflowType,
-    teamId,
-    linkType,
-    scraperSecret,
-  }: CreateWorkflowScraperInstanceOptions): Promise<string> {
-    const instanceName = this.buildInstanceName(workflowId, linkType);
+  async createInstanceFromSnapshot({
+    instanceName,
+    bundleId,
+    envVars,
+    dockerComposeScript,
+    envFilePath,
+    tags,
+    setupDelayMs = DEFAULT_INSTANCE_SETUP_DELAY_MS,
+  }: CreateLightsailInstanceOptions): Promise<string> {
     const keyPairName = this.configService.get<string>(
       "LIGHTSAIL_KEY_PAIR_NAME",
     );
@@ -69,26 +87,61 @@ export class LightsailService {
           "LIGHTSAIL_INSTANCE_SNAPSHOT_NAME",
           "LIGHTSAIL_SNAPSHOT_NAME",
         ),
-        bundleId: this.getRequiredConfig("LIGHTSAIL_BUNDLE_ID"),
-
+        bundleId,
         ...(keyPairName ? { keyPairName } : {}),
         ...(ipAddressType ? { ipAddressType } : {}),
+        ...(tags?.length ? { tags } : {}),
       }),
     );
 
-    this.logger.log(
-      `Created Lightsail instance ${instanceName} for workflow ${workflowId}`,
-    );
+    this.logger.log(`Created Lightsail instance ${instanceName}`);
     setTimeout(() => {
-      this.runDockerComposeRefreshOnInstance(instanceName, {
+      void this.configureInstance(instanceName, {
+        envVars,
+        dockerComposeScript,
+        envFilePath,
+      }).catch((error) => {
+        this.logger.error(
+          `Failed to configure Lightsail instance ${instanceName}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+    }, setupDelayMs);
+
+    return instanceName;
+  }
+
+  async createWorkflowScraperInstance({
+    workflowId,
+    workflowType,
+    teamId,
+    linkType,
+    scraperSecret,
+  }: CreateWorkflowScraperInstanceOptions): Promise<string> {
+    const instanceName = this.buildInstanceName(workflowId, linkType);
+    const apiUrl = this.getRequiredConfig("API_URL");
+
+    return this.createInstanceFromSnapshot({
+      instanceName,
+      bundleId: this.getRequiredConfig("LIGHTSAIL_BUNDLE_ID"),
+      envVars: {
+        TEAM_ID: teamId,
+        WORKFLOW_ID: workflowId,
+        WORKFLOW_TYPE: workflowType,
+        LINK_TRACKING_TYPE: linkType,
+        SCRAPER_SECRET: scraperSecret,
+        TEAM_PROCESS_SECRET: scraperSecret,
+        TEAM_PROCESSES_API_URL: apiUrl,
+        API_URL: apiUrl,
+      },
+      dockerComposeScript: this.buildDefaultDockerComposeScript(),
+      tags: this.buildTags({
         workflowId,
         workflowType,
         teamId,
         linkType,
-        scraperSecret,
-      });
-    }, 10000);
-    return instanceName;
+      }),
+    });
   }
 
   async deleteInstance(instanceName: string): Promise<void> {
@@ -102,6 +155,23 @@ export class LightsailService {
     this.logger.log(`Deleted Lightsail instance ${instanceName}`);
   }
 
+  async configureInstance(
+    instanceId: string,
+    {
+      envVars,
+      dockerComposeScript,
+      envFilePath = DEFAULT_ENV_FILE_PATH,
+    }: ConfigureLightsailInstanceOptions,
+  ): Promise<void> {
+    await this.runScriptOnInstance(instanceId, [
+      this.buildInstanceSetupScript({
+        envVars,
+        dockerComposeScript,
+        envFilePath,
+      }),
+    ]);
+  }
+
   async runDockerComposeRefreshOnInstance(
     instanceId: string,
     scraperObj: {
@@ -112,16 +182,20 @@ export class LightsailService {
       scraperSecret: string;
     },
   ): Promise<void> {
-    const scripts = [
-      this.buildScraperUserData({
-        workflowId: scraperObj.workflowId,
-        workflowType: scraperObj.workflowType,
-        teamId: scraperObj.teamId,
-        linkType: scraperObj.linkType,
-        scraperSecret: scraperObj.scraperSecret,
-      }),
-    ];
-    await this.runScriptOnInstance(instanceId, scripts);
+    const apiUrl = this.getRequiredConfig("API_URL");
+    await this.configureInstance(instanceId, {
+      envVars: {
+        TEAM_ID: scraperObj.teamId,
+        WORKFLOW_ID: scraperObj.workflowId,
+        WORKFLOW_TYPE: scraperObj.workflowType,
+        LINK_TRACKING_TYPE: scraperObj.linkType,
+        SCRAPER_SECRET: scraperObj.scraperSecret,
+        TEAM_PROCESS_SECRET: scraperObj.scraperSecret,
+        TEAM_PROCESSES_API_URL: apiUrl,
+        API_URL: apiUrl,
+      },
+      dockerComposeScript: this.buildDefaultDockerComposeScript(),
+    });
   }
 
   async runScriptOnInstance(
@@ -170,25 +244,12 @@ export class LightsailService {
     }
   }
 
-  private buildScraperUserData({
-    workflowId,
-    workflowType,
-    teamId,
-    linkType,
-    scraperSecret,
-  }: CreateWorkflowScraperInstanceOptions): string {
-    const envFilePath = "$HOME/myapp/.env";
-    const apiUrl = this.getRequiredConfig("API_URL");
-    const envFile = this.buildEnvFile({
-      TEAM_ID: teamId,
-      WORKFLOW_ID: workflowId,
-      WORKFLOW_TYPE: workflowType,
-      LINK_TRACKING_TYPE: linkType,
-      SCRAPER_SECRET: scraperSecret,
-      TEAM_PROCESS_SECRET: scraperSecret,
-      TEAM_PROCESSES_API_URL: apiUrl,
-      API_URL: apiUrl,
-    });
+  buildInstanceSetupScript({
+    envVars,
+    dockerComposeScript,
+    envFilePath = DEFAULT_ENV_FILE_PATH,
+  }: ConfigureLightsailInstanceOptions): string {
+    const envFile = this.buildEnvFile(envVars);
 
     return `#!/bin/bash
 set -euo pipefail
@@ -198,11 +259,11 @@ cat > "$ENV_FILE_PATH" <<'EOF'
 ${envFile}
 EOF
 
-${this.buildDockerComposeScript()}
+${dockerComposeScript}
 `;
   }
 
-  private buildDockerComposeScript(): string {
+  buildDefaultDockerComposeScript(): string {
     return `cd ~/myapp
 docker compose pull
 docker compose down
@@ -293,11 +354,22 @@ echo "Finished Lightsail SSH scripts at $(date -Is)"
     return `'${value.replace(/'/g, "'\\''")}'`;
   }
 
-  private buildInstanceName(workflowId: string, linkType: string): string {
+  buildInstanceName(workflowId: string, linkType: string): string {
     const prefix =
       this.configService.get<string>("LIGHTSAIL_INSTANCE_NAME_PREFIX") ||
       "workflow-scraper";
-    return `${prefix}-${linkType}-${workflowId}`
+    return this.normalizeInstanceName(`${prefix}-${linkType}-${workflowId}`);
+  }
+
+  buildWorkflowRunInstanceName(workflowRunId: string, suffix: string): string {
+    const prefix =
+      this.configService.get<string>("LIGHTSAIL_INSTANCE_NAME_PREFIX") ||
+      "workflow-scraper";
+    return this.normalizeInstanceName(`${prefix}-${suffix}-${workflowRunId}`);
+  }
+
+  private normalizeInstanceName(name: string): string {
+    return name
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, "-")
       .replace(/-+/g, "-")
@@ -320,12 +392,20 @@ echo "Finished Lightsail SSH scripts at $(date -Is)"
     ];
   }
 
-  private getRequiredConfig(...keys: string[]): string {
+  getOptionalConfig(...keys: string[]): string | undefined {
     for (const key of keys) {
       const value = this.configService.get<string>(key);
       if (value?.trim()) {
-        return value;
+        return value.trim();
       }
+    }
+    return undefined;
+  }
+
+  private getRequiredConfig(...keys: string[]): string {
+    const value = this.getOptionalConfig(...keys);
+    if (value) {
+      return value;
     }
 
     throw new BadRequestException(

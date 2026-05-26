@@ -32,7 +32,7 @@ export class LinkedInSearchOutreachController {
   ) {
     return formatResponse(
       this.logger,
-      this.linkedInSearchOutreach.runForWorkflow(req.user, body.workflowId),
+      this.linkedInSearchOutreach.runForWorkflow(req.user, body),
       res,
       "LinkedIn search outreach workflow started",
     );

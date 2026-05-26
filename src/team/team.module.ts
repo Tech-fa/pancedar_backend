@@ -10,9 +10,11 @@ import {
   KijijiLink,
   KijijiLinkSchema,
 } from '../workflows/kiji-link-tracking/schemas/kijiji-link.schema';
+import { LinkedInLead } from '../workflows/linkedin-search-outreach/linkedin-lead.entity';
 import { Team, TeamConfig, TeamMember } from './team.entity';
 import { TeamController } from './team.controller';
 import { TeamProcessesController } from './team-processes.controller';
+import { LinkedInSearchOutreachTeamProcessService } from './linkedin-search-outreach-team-process.service';
 import { TeamProcessingService } from './team-processing.service';
 import { TeamService } from './team.service';
 import { PermissionModule } from '../permissions/permission.module';
@@ -26,6 +28,7 @@ import { CommonModule } from '../common/common.module';
       TeamConfig,
       Workflow,
       WorkflowRun,
+      LinkedInLead,
     ]),
     MongooseModule.forFeature([
       { name: KijijiLink.name, schema: KijijiLinkSchema },
@@ -35,7 +38,12 @@ import { CommonModule } from '../common/common.module';
     QueueModule,
     CommonModule,
   ],
-  providers: [TeamService, WorkflowService, TeamProcessingService],
+  providers: [
+    TeamService,
+    WorkflowService,
+    TeamProcessingService,
+    LinkedInSearchOutreachTeamProcessService,
+  ],
   controllers: [TeamController, TeamProcessesController],
   exports: [TeamService],
 })

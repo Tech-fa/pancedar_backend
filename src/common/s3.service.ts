@@ -5,6 +5,8 @@ import {
   S3Client,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { FileService } from "./file-service.interface";
@@ -24,7 +26,7 @@ export class S3Service implements FileService {
     });
   }
 
-  async getSignedUrlForDownload(key: string): Promise<string> {
+  async getSignedUrlForDownload(key: string): Promise<string | null> {
     try {
       const command = new GetObjectCommand({
         Bucket: this.configService.get("S3_BUCKET"),
@@ -35,6 +37,44 @@ export class S3Service implements FileService {
     } catch (error) {
       this.logger.error("error getting signed url", error);
       return null;
+    }
+  }
+
+  async getSignedUrlForUpload(
+    key: string,
+    contentType = "application/gzip",
+  ): Promise<string | null> {
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.configService.get("S3_BUCKET"),
+        Key: key,
+        ContentType: contentType,
+      });
+      return await getSignedUrl(this.s3, command, { expiresIn: 60 * 300 });
+    } catch (error) {
+      this.logger.error("error getting signed upload url", error);
+      return null;
+    }
+  }
+
+  async objectExists(key: string): Promise<boolean> {
+    try {
+      await this.s3.send(
+        new HeadObjectCommand({
+          Bucket: this.configService.get("S3_BUCKET"),
+          Key: key,
+        }),
+      );
+      return true;
+    } catch (error) {
+      const statusCode = (error as { $metadata?: { httpStatusCode?: number } })
+        .$metadata?.httpStatusCode;
+      const errorName = (error as { name?: string }).name;
+      if (statusCode === 404 || errorName === "NotFound") {
+        return false;
+      }
+      this.logger.error(`error checking if object exists for key ${key}`, error);
+      throw error;
     }
   }
 

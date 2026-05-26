@@ -661,13 +661,18 @@ export class WorkflowService {
 
   private attachWorkflowActionUrl<T extends Workflow>(
     workflow: T,
-  ): T & { actionUrl: string | null } {
+  ): T & { actionUrl: string | null; actionFields?: Array<Record<string, unknown>> } {
     const cfg = workflowConfigs[workflow.workflowType] as
-      | { actionUrl?: string }
+      | { actionUrl?: string; actionFields?: Array<Record<string, unknown>> }
       | undefined;
     const actionUrl =
       cfg && typeof cfg.actionUrl === "string" ? cfg.actionUrl : null;
-    return Object.assign(workflow, { actionUrl });
+    const actionFields =
+      cfg && Array.isArray(cfg.actionFields) ? cfg.actionFields : undefined;
+    return Object.assign(workflow, {
+      actionUrl,
+      ...(actionFields ? { actionFields } : {}),
+    });
   }
 
   async delete(user: UserRequest, id: string): Promise<void> {

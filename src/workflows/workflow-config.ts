@@ -147,6 +147,26 @@ export const workflowConfigs = {
     allowMultiple: true,
     entitiesNeeded: ["linkedin_leads"],
     actionUrl: "linkedin-search-outreach/run",
+    actionFields: [
+      {
+        label: "LinkedIn search URL",
+        name: "searchUrl",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Start Page",
+        name: "startPage",
+        type: "number",
+        required: false,
+      },
+      {
+        label: "topic",
+        name: "topic",
+        type: "textarea",
+        required: true,
+      },
+    ],
   },
   "phone-ordering-assistant": {
     description:
@@ -415,25 +435,12 @@ export const workflowStepConfigs = {
       "Uses the connector blog template and research to generate a site blog and LinkedIn post.",
   },
   "await-approval": {
-    description: "Review and approve the draft before it is committed to pages/blog.",
+    description:
+      "Review and approve the draft before it is committed to pages/blog.",
   },
   "linkedin-people-search": {
     description:
       "LinkedIn people search URL plus keywords used to tailor outreach messages.",
-    fields: [
-      {
-        label: "LinkedIn search URL",
-        name: "searchUrl",
-        type: "text",
-        required: true,
-      },
-      {
-        label: "Keywords (comma or newline separated)",
-        name: "keywords",
-        type: "textarea",
-        required: true,
-      },
-    ],
   },
   "collect-profile-outreach": {
     description:
