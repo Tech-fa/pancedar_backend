@@ -112,6 +112,9 @@ export class BrowserService {
         if (!text) {
           continue;
         }
+        if (text === "FAILED TO EXTRACT TEXT") {
+         return out;
+        }
         const lower = text.toLowerCase();
         const matched = keywords.filter((kw) => lower.includes(kw));
         if (!matched.length) {
@@ -227,7 +230,7 @@ export class BrowserService {
         `Browser text extraction failed for URL: ${url}`,
         error?.stack,
       );
-      return "";
+      return "FAILED TO EXTRACT TEXT";
     } finally {
       await page?.close().catch(() => undefined);
       if (launchedHere && activeBrowser) {

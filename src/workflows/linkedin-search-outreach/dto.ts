@@ -1,4 +1,11 @@
-import { IsOptional, IsNotEmpty, IsString, IsUUID, IsNumber } from "class-validator";
+import {
+  IsOptional,
+  IsNotEmpty,
+  IsString,
+  IsUUID,
+  IsNumber,
+  MinLength,
+} from 'class-validator';
 
 export class TriggerLinkedInSearchOutreachDto {
   @IsUUID()
@@ -16,3 +23,4 @@ export class TriggerLinkedInSearchOutreachDto {
   @IsNumber()
   startPage?: number;
 }
+

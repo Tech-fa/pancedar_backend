@@ -3,19 +3,23 @@ import {
   Controller,
   Get,
   Logger,
+  Param,
+  Patch,
   Post,
   Query,
   Req,
   Res,
-} from "@nestjs/common";
-import type { Response } from "express";
-import { hasPermission } from "../../authentication/permission.decorator";
-import { workflowPermission } from "../../permissions/permissions";
-import { formatResponse } from "../../util/helper-util";
-import { TriggerLinkedInSearchOutreachDto } from "./dto";
-import { LinkedInSearchOutreachService } from "./linkedin-search-outreach.service";
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { hasPermission } from '../../authentication/permission.decorator';
+import { workflowPermission } from '../../permissions/permissions';
+import { formatResponse } from '../../util/helper-util';
+import {
+  TriggerLinkedInSearchOutreachDto,
+} from './dto';
+import { LinkedInSearchOutreachService } from './linkedin-search-outreach.service';
 
-@Controller("linkedin-search-outreach")
+@Controller('linkedin-search-outreach')
 export class LinkedInSearchOutreachController {
   private readonly logger = new Logger(LinkedInSearchOutreachController.name);
 
@@ -23,8 +27,8 @@ export class LinkedInSearchOutreachController {
     private readonly linkedInSearchOutreach: LinkedInSearchOutreachService,
   ) {}
 
-  @Post("run")
-  @hasPermission({ subject: workflowPermission.subject, actions: ["create"] })
+  @Post('run')
+  @hasPermission({ subject: workflowPermission.subject, actions: ['create'] })
   async run(
     @Req() req,
     @Body() body: TriggerLinkedInSearchOutreachDto,
@@ -34,16 +38,16 @@ export class LinkedInSearchOutreachController {
       this.logger,
       this.linkedInSearchOutreach.runForWorkflow(req.user, body),
       res,
-      "LinkedIn search outreach workflow started",
+      'LinkedIn search outreach workflow started',
     );
   }
 
-  @Get("leads")
-  @hasPermission({ subject: workflowPermission.subject, actions: ["read"] })
+  @Get('leads')
+  @hasPermission({ subject: workflowPermission.subject, actions: ['read'] })
   async listLeads(
     @Req() req,
-    @Query("workflowRunId") workflowRunId: string | undefined,
-    @Query("limit") limit: string,
+    @Query('workflowRunId') workflowRunId: string | undefined,
+    @Query('limit') limit: string,
     @Res() res: Response,
   ) {
     const n = Number(limit);
@@ -55,7 +59,27 @@ export class LinkedInSearchOutreachController {
         Number.isFinite(n) ? n : undefined,
       ),
       res,
-      "LinkedIn leads fetched",
+      'LinkedIn leads fetched',
+    );
+  }
+
+  @Patch('workflow-runs/:workflowRunId/lead-messages')
+  @hasPermission({ subject: workflowPermission.subject, actions: ['update'] })
+  async combineLeadMessages(
+    @Req() req,
+    @Param('workflowRunId') workflowRunId: string,
+    @Body() body,
+    @Res() res: Response,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.linkedInSearchOutreach.combineLeadMessagesForWorkflowRun(
+        req.user,
+        workflowRunId,
+        body.message,
+      ),
+      res,
+      'LinkedIn lead messages updated',
     );
   }
 }

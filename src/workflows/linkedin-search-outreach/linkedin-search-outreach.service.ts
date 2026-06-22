@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { LightsailService } from "../../common/lightsail.service";
+import { completeUserPrompt } from "../../llm-integration/llm-stream";
 import { UserRequest } from "../../permissions/dto";
 import { TeamService } from "../../team/team.service";
 import { WorkflowService } from "../workflow.service";
@@ -124,6 +131,52 @@ export class LinkedInSearchOutreachService {
     return qb.orderBy("lead.createdAt", "DESC").take(take).getMany();
   }
 
+  async combineLeadMessagesForWorkflowRun(
+    user: UserRequest,
+    workflowRunId: string,
+    message:string,
+  ): Promise<{ updated: number; leads: LinkedInLead[] }> {
+    const workflowRun = await this.workflowService.findWorkflowRunById(
+      workflowRunId,
+    );
+    if (!workflowRun?.workflow) {
+      throw new NotFoundException("Workflow run not found");
+    }
+    if (workflowRun.workflow.teamId !== user.teamId) {
+      throw new ForbiddenException("Not allowed to update this workflow run");
+    }
+    if (workflowRun.workflow.workflowType !== LINKEDIN_SEARCH_OUTREACH_TYPE) {
+      throw new BadRequestException(
+        "Workflow run is not a LinkedIn search outreach workflow",
+      );
+    }
+
+    const leads = await this.leadRepo.find({
+      where: { workflowRunId },
+      order: { createdAt: "DESC" },
+    });
+    const now = Date.now();
+    const llmConfig = {
+      apiUrl: this.getRequiredConfig("LLM_API_URL"),
+      apiKey: this.getRequiredConfig("LLM_API_KEY"),
+      model: this.getRequiredConfig("LLM_MODEL"),
+    };
+
+    const updatedLeads = await Promise.all(
+      leads.map(async (lead) => {
+        lead.outreachSummary = await this.combineLeadMessageWithLlm(
+          lead,
+          message,
+          llmConfig,
+        );
+        lead.updatedAt = now;
+        return this.leadRepo.save(lead);
+      }),
+    );
+
+    return { updated: updatedLeads.length, leads: updatedLeads };
+  }
+
   private async getScraperSecret(teamId: string): Promise<string> {
     const teamConfig = await this.teamService.getDecryptedConfigByTeamId(
       teamId,
@@ -146,5 +199,46 @@ export class LinkedInSearchOutreachService {
     throw new BadRequestException(
       `Missing required configuration: ${keys.join(" or ")}`,
     );
+  }
+
+  private combineLeadMessage(
+    existingMessage: string | null | undefined,
+    message: string,
+  ): string {
+    return existingMessage;
+  }
+
+  private async combineLeadMessageWithLlm(
+    lead: LinkedInLead,
+    message: string,
+    llmConfig: { apiUrl: string; apiKey: string; model: string },
+  ): Promise<string> {
+    const prompt = `You revise LinkedIn outreach messages.
+
+Lead:
+- Name: ${lead.name || "(unknown)"}
+- Position: ${lead.position || "(unknown)"}
+- Profile URL: ${lead.profileUrl}
+
+Existing outreach message:
+${lead.outreachSummary?.trim() || "(none)"}
+
+New thing we want to tell the lead:
+${message}
+
+Create one final LinkedIn outreach message that naturally combines the existing message with the new thing to tell them. Preserve useful personalization from the existing message. Do not make it longer than necessary. Return only the final message text, with no quotes, labels, markdown, or explanation.`;
+
+    const combined = (
+      await completeUserPrompt({
+        ...llmConfig,
+        messages: [{ role: "system", content: prompt }],
+      })
+    ).trim();
+
+    if (!combined) {
+      throw new BadRequestException("LLM did not return a combined message");
+    }
+
+    return combined;
   }
 }

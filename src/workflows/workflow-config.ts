@@ -88,7 +88,7 @@ export const workflowConfigs = {
       linkType: "facebook",
       stepName: "search-facebook",
       urlField: "searchLink",
-      dockerRunScript: `docker run --env-file .env -e HEADLESS=false -e FACEBOOK_CAPTCHA_WAIT_MS=300000 node dist/facebook-marketplace-tracker-main.js`,
+      dockerRunScript: `cd ~/myapp && docker pull fozitto/pancedar:latest && docker run  --env-file .env -e HEADLESS=false -e FACEBOOK_CAPTCHA_WAIT_MS=300000 fozitto/pancedar:latest dist/facebook-marketplace-tracker-main.js`,
     },
   },
   "cargurus-notifier": {

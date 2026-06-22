@@ -508,7 +508,7 @@ export class RealBrowserService {
         browser = b;
       });
       await page.goto(peopleUrl, {
-        waitUntil: "networkidle2",
+        waitUntil: "domcontentloaded",
         timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
       });
       await this.humanPause(800, 1600);
@@ -529,7 +529,7 @@ export class RealBrowserService {
       const associatedMembersCount = await this.readLinkedInAssociatedMembersCount(
         page,
       );
-      if (associatedMembersCount !== null && associatedMembersCount >= 100) {
+      if (associatedMembersCount !== null && associatedMembersCount >= 1000) {
         this.logger.log(
           `[linkedin] skipping people scrape: ${associatedMembersCount} associated members`,
         );
@@ -813,6 +813,11 @@ export class RealBrowserService {
   private toLinkedInPeopleUrl(companyLinkedInUrl: string): string {
     try {
       const u = new URL(companyLinkedInUrl.trim());
+      const companyMatch = u.pathname.match(/^\/company\/([^/]+)/i);
+      if (companyMatch) {
+        u.pathname = `/company/${companyMatch[1]}/people`;
+        return u.href;
+      }
       let path = u.pathname.replace(/\/+$/, "");
       if (!/\/people$/i.test(path)) {
         path = `${path}/people`;
@@ -820,6 +825,12 @@ export class RealBrowserService {
       u.pathname = path;
       return u.href;
     } catch {
+      const companyMatch = companyLinkedInUrl
+        .trim()
+        .match(/\/company\/([^/]+)/i);
+      if (companyMatch) {
+        return `https://www.linkedin.com/company/${companyMatch[1]}/people`;
+      }
       const t = companyLinkedInUrl.trim().replace(/\/+$/, "");
       return /\/people$/i.test(t) ? t : `${t}/people`;
     }
