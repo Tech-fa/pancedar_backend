@@ -19,9 +19,19 @@ export type LinkedInPersonProfile = {
   profileUrl: string;
 };
 
+export type LinkedInCompanyProfile = {
+  name: string;
+  companyUrl: string;
+};
+
 export type LinkedInPeopleScrapeResult = {
   associatedMembersCount: number | null;
   profiles: LinkedInPersonProfile[];
+  skipReason?: string;
+};
+
+export type LinkedInCompanyScrapeResult = {
+  companies: LinkedInCompanyProfile[];
   skipReason?: string;
 };
 
@@ -784,6 +794,97 @@ export class RealBrowserService {
     }
   }
 
+  /**
+   * Opens a LinkedIn company search URL, signs in when needed, and collects
+   * company page links from the first `maxPages` result pages.
+   */
+  async collectLinkedInSearchCompanyUrls(
+    searchUrl: string,
+    maxPages = MAX_LINKEDIN_SEARCH_PAGES,
+    credentials?: LinkedInAuthCredentials,
+    startPage = 1,
+  ): Promise<LinkedInCompanyScrapeResult> {
+    const trimmed = searchUrl?.trim();
+    if (!trimmed) {
+      return { companies: [], skipReason: "no_search_url" };
+    }
+
+    const pageLimit = Math.min(
+      Math.max(maxPages, 1),
+      MAX_LINKEDIN_SEARCH_PAGES,
+    );
+    let browser: Browser | null = null;
+    try {
+      const page = await this.openRealBrowserPage((b) => {
+        browser = b;
+      });
+
+      const allCompanies: LinkedInCompanyProfile[] = [];
+      const seenUrls = new Set<string>();
+      const firstPage = Math.max(startPage, 1);
+
+      for (let pageNum = firstPage; pageNum <= pageLimit; pageNum++) {
+        const pageUrl = this.toLinkedInSearchPageUrl(trimmed, pageNum);
+        await page.goto(pageUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+        });
+        await this.humanPause(900, 1800);
+        this.logger.log(
+          `[linkedin] visiting company search page ${pageNum}/${pageLimit}: ${pageUrl}`,
+        );
+
+        const sessionReady = await this.ensureLinkedInSession(
+          page,
+          credentials,
+          pageUrl,
+        );
+        if (!sessionReady) {
+          return {
+            companies: allCompanies,
+            skipReason: allCompanies.length
+              ? undefined
+              : "linkedin_auth_required",
+          };
+        }
+
+        await page
+          .waitForSelector(
+            '[aria-label="Primary content"] a[href*="/company/"]',
+            { timeout: 25_000 },
+          )
+          .catch(() => undefined);
+        await this.humanPause(400, 900);
+        await this.scrollLinkedInSearchResultsHuman(page);
+
+        const batch = await this.readLinkedInSearchCompanyListProfiles(page);
+        for (const company of batch) {
+          if (seenUrls.has(company.companyUrl)) {
+            continue;
+          }
+          seenUrls.add(company.companyUrl);
+          allCompanies.push(company);
+        }
+
+        this.logger.log(
+          `[linkedin] company search page ${pageNum}/${pageLimit}: +${batch.length} company(ies), total ${allCompanies.length}`,
+        );
+
+       
+      }
+
+      return { companies: allCompanies };
+    } catch (error) {
+      this.logger.error(
+        `LinkedIn search company scrape failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw error;
+    } finally {
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
   async openRealBrowserPage(
     onBrowser: (browser: Browser) => void,
   ): Promise<Page> {
@@ -869,6 +970,85 @@ export class RealBrowserService {
       const sep = searchUrl.includes("?") ? "&" : "?";
       return `${searchUrl.trim()}${sep}page=${pageNum}`;
     }
+  }
+
+  private normalizeLinkedInCompanyUrl(rawUrl: string): string | null {
+    try {
+      const u = new URL(rawUrl.trim());
+      const match = u.pathname.match(/^\/company\/([^/]+)/i);
+      if (!match) {
+        return null;
+      }
+      u.pathname = `/company/${match[1]}`;
+      u.search = "";
+      u.hash = "";
+      return u.href.replace(/\/+$/, "");
+    } catch {
+      const match = rawUrl.trim().match(/\/company\/([^/?#]+)/i);
+      if (!match) {
+        return null;
+      }
+      return `https://www.linkedin.com/company/${match[1]}`;
+    }
+  }
+
+  private async readLinkedInSearchCompanyListProfiles(
+    page: Page,
+  ): Promise<LinkedInCompanyProfile[]> {
+    return await page.evaluate(() => {
+      const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+      const companies: Array<{ name: string; companyUrl: string }> = [];
+      const seenUrls = new Set<string>();
+
+      const normalizeCompanyUrl = (rawUrl: string): string | null => {
+        try {
+          const u = new URL(rawUrl.trim());
+          const match = u.pathname.match(/^\/company\/([^/]+)/i);
+          if (!match) {
+            return null;
+          }
+          u.pathname = `/company/${match[1]}`;
+          u.search = "";
+          u.hash = "";
+          return u.href.replace(/\/+$/, "");
+        } catch {
+          const match = rawUrl.trim().match(/\/company\/([^/?#]+)/i);
+          return match
+            ? `https://www.linkedin.com/company/${match[1]}`
+            : null;
+        }
+      };
+
+      const primaryContent = document.querySelector(
+        '[aria-label="Primary content"]',
+      );
+      if (!primaryContent) {
+        return companies;
+      }
+
+      primaryContent
+        .querySelectorAll('a[href*="/company/"]')
+        .forEach((node) => {
+          const anchor = node as HTMLAnchorElement;
+          if (!anchor.href) {
+            return;
+          }
+          const companyUrl = normalizeCompanyUrl(anchor.href);
+          if (!companyUrl || seenUrls.has(companyUrl)) {
+            return;
+          }
+          seenUrls.add(companyUrl);
+
+          const name =
+            normalize(anchor.getAttribute("aria-label") || "") ||
+            normalize(anchor.textContent || "") ||
+            "LinkedIn company";
+
+          companies.push({ name, companyUrl });
+        });
+
+      return companies;
+    });
   }
 
   private async readLinkedInSearchPeopleListProfiles(

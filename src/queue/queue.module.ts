@@ -28,6 +28,9 @@ import { QueuePublisher } from './queue.publisher';
         'process-website': {
           prefetchCount: 1,
         },
+        'process-linkedin-company-outreach': {
+          prefetchCount: 1,
+        },
       },
     }),
   ],
@@ -55,5 +58,6 @@ export class QueueModule {
     await this.producer.createQueue(Events.EMAIL_WORKFLOW_REPLY_GMAIL);
     await this.producer.createQueue(Events.NEW_KIJIJI_ITEM);
     await this.producer.createQueue(Events.PROCESS_WEBSITE);
+    await this.producer.createQueue(Events.PROCESS_LINKEDIN_COMPANY_OUTREACH);
   }
 }

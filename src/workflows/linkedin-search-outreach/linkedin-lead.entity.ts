@@ -22,6 +22,12 @@ export class LinkedInLead {
   @Column({ name: "search_url", type: "text" })
   searchUrl: string;
 
+  @Column({ name: "company_linkedin_url", type: "text", nullable: true })
+  companyLinkedInUrl: string | null;
+
+  @Column({ name: "company_name", type: "varchar", length: 512, nullable: true })
+  companyName: string | null;
+
   @Column({ name: "profile_url", type: "text",})
   profileUrl: string;
 

@@ -18,6 +18,7 @@ export enum WorkflowType {
   GOOGLE_BUSINESS_SCRAPER = "google-business-scraper",
   SEO_HELPER = "seo-helper",
   LINKEDIN_SEARCH_OUTREACH = "linkedin-search-outreach",
+  LINKEDIN_COMPANY_SEARCH_OUTREACH = "linkedin-company-search-outreach",
 }
 
 export const workflowConfigs = {
@@ -163,6 +164,35 @@ export const workflowConfigs = {
       },
       {
         label: "topic",
+        name: "topic",
+        type: "textarea",
+        required: true,
+      },
+    ],
+  },
+  "linkedin-company-search-outreach": {
+    description:
+      "Scrape LinkedIn company search results, visit each company page, pick a decision-maker from /people, read their recent posts, and draft personalized outreach.",
+    steps: ["linkedin-company-search", "collect-company-outreach"],
+    connectorsNeeded: ["LinkedIn"],
+    allowMultiple: true,
+    entitiesNeeded: ["linkedin_leads"],
+    actionUrl: "linkedin-company-search-outreach/run",
+    actionFields: [
+      {
+        label: "LinkedIn company search URL",
+        name: "searchUrl",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Start Page",
+        name: "startPage",
+        type: "number",
+        required: false,
+      },
+      {
+        label: "Topic / keywords",
         name: "topic",
         type: "textarea",
         required: true,
@@ -446,6 +476,14 @@ export const workflowStepConfigs = {
   "collect-profile-outreach": {
     description:
       "Visits each collected profile, reads recent activity, and drafts outreach copy.",
+  },
+  "linkedin-company-search": {
+    description:
+      "LinkedIn company search URL used to collect company pages for outreach.",
+  },
+  "collect-company-outreach": {
+    description:
+      "Visits each company /people page, picks a decision-maker, reads their posts, and drafts outreach.",
   },
 };
 

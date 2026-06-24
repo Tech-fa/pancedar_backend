@@ -70,4 +70,15 @@ export class QueuePublisher {
   }) {
     return this.publish(Events.PROCESS_WEBSITE, data);
   }
+
+  publishProcessLinkedInCompanyOutreach(data: {
+    companyLinkedInUrl: string;
+    companyName?: string | null;
+    keywords: string[];
+    searchUrl: string;
+    workflowRunId: string;
+    isLast?: boolean;
+  }) {
+    return this.publish(Events.PROCESS_LINKEDIN_COMPANY_OUTREACH, data);
+  }
 }

@@ -32,6 +32,8 @@ export enum Events {
   ORDER_CONFIRMED = 'order_confirmed',
   /** Scrape a business website (sitemap or landing page) for keywords; persists `GoogleFlaggedPage` rows. */
   PROCESS_WEBSITE = 'process_website',
+  /** Run LinkedIn outreach for one company from a company-search workflow run. */
+  PROCESS_LINKEDIN_COMPANY_OUTREACH = 'process_linkedin_company_outreach',
 }
 
 

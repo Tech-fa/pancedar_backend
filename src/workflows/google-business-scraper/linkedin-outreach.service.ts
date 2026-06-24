@@ -3,6 +3,7 @@ import { completeUserPrompt } from "src/llm-integration/llm-stream";
 import { Connector } from "../../connector/connector.entity";
 import {
   LinkedInAuthCredentials,
+  LinkedInCompanyProfile,
   LinkedInPersonProfile,
   RealBrowserService,
 } from "../../resource-ingestion/real-browser";
@@ -16,7 +17,17 @@ const LINKEDIN_PASSWORD_FIELD = "LinkedIn Password";
 export type LinkedInOutreachResult = {
   linkedinContactProfileUrl: string | null;
   linkedinOutreachSummary: string | null;
+  contactName?: string | null;
+  contactPosition?: string | null;
   skipReason?: string;
+};
+
+export type LinkedInCompanySearchLeadResult = {
+  company: LinkedInCompanyProfile;
+  outreach: LinkedInOutreachResult;
+  contactName?: string | null;
+  contactPosition?: string | null;
+  status: "completed" | "skipped" | "failed";
 };
 
 @Injectable()
@@ -81,6 +92,8 @@ export class LinkedInOutreachService {
     return {
       linkedinContactProfileUrl: selected.profileUrl,
       linkedinOutreachSummary: summary,
+      contactName: selected.name,
+      contactPosition: selected.position,
     };
   }
 
@@ -120,6 +133,100 @@ export class LinkedInOutreachService {
       linkedinContactProfileUrl: profile.profileUrl,
       linkedinOutreachSummary: summary,
     };
+  }
+
+  /**
+   * Loads company page URLs from a LinkedIn company search URL.
+   */
+  async collectCompaniesFromSearch(
+    searchUrl: string,
+    credentials?: LinkedInAuthCredentials,
+    startPage = 1,
+    maxPages = 10,
+  ): Promise<{
+    companies: LinkedInCompanyProfile[];
+    skipReason?: string;
+  }> {
+    const scrapeResult =
+      await this.realBrowser.collectLinkedInSearchCompanyUrls(
+        searchUrl,
+        maxPages,
+        credentials,
+        startPage,
+      );
+
+    return {
+      companies: scrapeResult.companies ?? [],
+      skipReason: scrapeResult.skipReason,
+    };
+  }
+
+  /**
+   * Loads companies from a LinkedIn company search URL, then for each company
+   * runs {@link runOutreach} (people → decision-maker → posts → message).
+   */
+  async runCompanySearchOutreach(
+    searchUrl: string,
+    keywords: string[],
+    credentials?: LinkedInAuthCredentials,
+    startPage = 1,
+    maxPages = 10,
+  ): Promise<{
+    companies: LinkedInCompanyProfile[];
+    leads: LinkedInCompanySearchLeadResult[];
+    skipReason?: string;
+  }> {
+    const { companies, skipReason } = await this.collectCompaniesFromSearch(
+      searchUrl,
+      credentials,
+      startPage,
+      maxPages,
+    );
+
+    if (skipReason === "linkedin_auth_required") {
+      return { companies, leads: [], skipReason };
+    }
+
+    const leads: LinkedInCompanySearchLeadResult[] = [];
+
+    for (const company of companies) {
+      try {
+        const outreach = await this.runOutreach(
+          company.companyUrl,
+          keywords,
+          credentials,
+        );
+        const skipped = Boolean(
+          outreach.skipReason ||
+            !outreach.linkedinContactProfileUrl ||
+            !outreach.linkedinOutreachSummary,
+        );
+        leads.push({
+          company,
+          outreach,
+          contactName: outreach.contactName ?? null,
+          contactPosition: outreach.contactPosition ?? null,
+          status: skipped ? "skipped" : "completed",
+        });
+      } catch (error) {
+        leads.push({
+          company,
+          outreach: {
+            linkedinContactProfileUrl: null,
+            linkedinOutreachSummary: null,
+            skipReason: (error as Error).message,
+          },
+          status: "failed",
+        });
+        this.logger.warn(
+          `[linkedin-outreach] company search failed for ${company.companyUrl}: ${
+            (error as Error).message
+          }`,
+        );
+      }
+    }
+
+    return { companies, leads };
   }
 
   /** Resolves username/password from a linked LinkedIn connector record. */
