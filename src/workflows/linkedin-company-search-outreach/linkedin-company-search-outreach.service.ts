@@ -43,13 +43,13 @@ export class LinkedInCompanySearchOutreachService {
     }
 
     const searchUrl = body.searchUrl.trim();
-    const topic = body.topic.trim();
-    const keywords = this.parseKeywords(topic);
+    const selectionCriteria = body.selectionCriteria.trim();
+    const messageTopic = body.messageTopic.trim();
     if (!searchUrl) {
       throw new BadRequestException("searchUrl is required");
     }
-    if (!keywords.length) {
-      throw new BadRequestException("topic is required");
+    if (!selectionCriteria.trim()) {
+      throw new BadRequestException("selectionCriteria is required");
     }
 
     const workflowRun = await this.workflowService.createWorkflowRun({
@@ -57,13 +57,15 @@ export class LinkedInCompanySearchOutreachService {
       context: {
         kind: LINKEDIN_COMPANY_SEARCH_OUTREACH_TYPE,
         searchUrl,
-        topic,
+        selectionCriteria,
+        messageTopic,
         startPage: body.startPage,
       },
       displayContext: {
         title: "LinkedIn company search outreach",
         searchUrl,
-        topic,
+        selectionCriteria,
+        messageTopic,
         startPage: body.startPage,
         startedAt: Date.now(),
       },
@@ -76,7 +78,7 @@ export class LinkedInCompanySearchOutreachService {
       },
     });
 
-    void this.runPipeline(workflowRun.id, searchUrl, keywords, body.startPage);
+    void this.runPipeline(workflowRun.id, searchUrl, selectionCriteria, messageTopic, body.startPage);
   }
 
   async findLeadsForTeam(
@@ -107,7 +109,8 @@ export class LinkedInCompanySearchOutreachService {
   private async runPipeline(
     workflowRunId: string,
     searchUrl: string,
-    keywords: string[],
+    selectionCriteria: string,
+    messageTopic: string,
     startPage: number | undefined,
   ): Promise<void> {
     const workflowRun =
@@ -123,7 +126,8 @@ export class LinkedInCompanySearchOutreachService {
       stepsContext: {
         [SEARCH_STEP_NAME]: {
           searchUrl,
-          topic: keywords.join(", "),
+          selectionCriteria,
+          messageTopic,
           status: "collecting",
         },
       },
@@ -200,7 +204,8 @@ export class LinkedInCompanySearchOutreachService {
         await this.queuePublisher.publishProcessLinkedInCompanyOutreach({
           companyLinkedInUrl: company.companyUrl,
           companyName: company.name ?? null,
-          keywords,
+          selectionCriteria,
+          messageTopic,
           searchUrl,
           workflowRunId,
           isLast: i === companies.length - 1,

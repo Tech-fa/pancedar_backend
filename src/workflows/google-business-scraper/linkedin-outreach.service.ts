@@ -42,7 +42,8 @@ export class LinkedInOutreachService {
    */
   async runOutreach(
     companyLinkedInUrl: string,
-    keywords: string[],
+    selectionCriteria: string,
+    messageTopic: string,
     credentials?: LinkedInAuthCredentials,
   ): Promise<LinkedInOutreachResult> {
     const empty: LinkedInOutreachResult = {
@@ -70,27 +71,28 @@ export class LinkedInOutreachService {
 
     const selected = await this.pickMostRelevantProfile(
       peopleData.profiles,
-      keywords,
+      selectionCriteria,
     );
     if (!selected) {
       return { ...empty, skipReason: "no_profile_selected" };
     }
 
-    const activitySnippets =
-      await this.realBrowser.collectLinkedInProfileActivitySnippets(
-        selected.profileUrl,
-        5,
-        credentials,
-      );
+    const activitySnippets = selected.profileUrl
+      ? await this.realBrowser.collectLinkedInProfileActivitySnippets(
+          selected.profileUrl,
+          5,
+          credentials,
+        )
+      : [];
 
     const summary = await this.summarizeOutreachMessage(
-      keywords,
+      messageTopic,
       selected,
       activitySnippets,
     );
 
     return {
-      linkedinContactProfileUrl: selected.profileUrl,
+      linkedinContactProfileUrl: selected.profileUrl ?? null,
       linkedinOutreachSummary: summary,
       contactName: selected.name,
       contactPosition: selected.position,
@@ -102,12 +104,12 @@ export class LinkedInOutreachService {
    */
   async runOutreachForProfile(
     profile: LinkedInPersonProfile,
-    keywords: string[],
+    messageTopic: string,
     credentials?: LinkedInAuthCredentials,
     browser?: Browser,
   ): Promise<LinkedInOutreachResult> {
     const empty: LinkedInOutreachResult = {
-      linkedinContactProfileUrl: profile.profileUrl,
+      linkedinContactProfileUrl: profile.profileUrl ?? null,
       linkedinOutreachSummary: null,
     };
 
@@ -124,7 +126,7 @@ export class LinkedInOutreachService {
       );
 
     const summary = await this.summarizeOutreachMessage(
-      keywords,
+      messageTopic,
       profile,
       activitySnippets,
     );
@@ -167,7 +169,8 @@ export class LinkedInOutreachService {
    */
   async runCompanySearchOutreach(
     searchUrl: string,
-    keywords: string[],
+    selectionCriteria: string,
+    messageTopic: string,
     credentials?: LinkedInAuthCredentials,
     startPage = 1,
     maxPages = 10,
@@ -193,7 +196,8 @@ export class LinkedInOutreachService {
       try {
         const outreach = await this.runOutreach(
           company.companyUrl,
-          keywords,
+          selectionCriteria,
+          messageTopic,
           credentials,
         );
         const skipped = Boolean(
@@ -252,7 +256,7 @@ export class LinkedInOutreachService {
 
   private async pickMostRelevantProfile(
     profiles: LinkedInPersonProfile[],
-    keywords: string[],
+    selectionCriteria: string,
   ): Promise<LinkedInPersonProfile | null> {
     if (profiles.length === 1) {
       return profiles[0];
@@ -271,19 +275,20 @@ export class LinkedInOutreachService {
     const profileList = profiles
       .map(
         (p, i) =>
-          `${i}: name="${p.name}", position="${p.position}", url=${p.profileUrl}`,
+          `${i}: name="${p.name}", position="${p.position}", url=${p.profileUrl ?? "(not available)"}`,
       )
       .join("\n");
+    const prompt = `You are an expert B2B salesperson specializing in LinkedIn outreach.
 
-    const prompt = `You help pick the best LinkedIn contact at a company for B2B outreach.
-
-Keywords we matched on the company's website:
-${keywords.map((k) => `- ${k}`).join("\n")}
+You help pick the best LinkedIn contact at a company for B2B outreach
 
 Candidates:
 ${profileList}
 
-Pick the single person most likely to care about or own topics related to those keywords (role seniority and title relevance matter).
+Pick the single person most likely to match the selection criteria based on their position.
+
+Selection criteria:
+${selectionCriteria}
 
 Respond ONLY with JSON (no markdown):
 {"profileIndex": number, "reason": "one short sentence"}`;
@@ -309,7 +314,7 @@ Respond ONLY with JSON (no markdown):
   }
 
   private async summarizeOutreachMessage(
-    keywords: string[],
+    messageTopic: string,
     profile: LinkedInPersonProfile,
     activitySnippets: string[],
   ): Promise<string> {
@@ -317,27 +322,31 @@ Respond ONLY with JSON (no markdown):
     const apiKey = process.env.LLM_API_KEY;
     const model = process.env.LLM_MODEL;
     if (!apiUrl?.trim() || !apiKey?.trim() || !model?.trim()) {
-      return `Hi ${profile.name}, I noticed your work as ${profile.position} and thought we might connect regarding ${keywords.join(", ")}.`;
+      return `Hi ${profile.name}, I noticed your work as ${profile.position} and thought we might connect regarding ${messageTopic}.`;
     }
-
+messageTopic = `sell a software platform that helps companies manage their ISO management systems. We also have an ecosystem of certified consulting partners who help clients implement the system and get fully certified.`
     const postsBlock =
       activitySnippets.length > 0
         ? activitySnippets.map((t, i) => `[${i + 1}] ${t}`).join("\n\n")
         : "(No recent public posts were available.)";
 
-    const prompt = `You write short, warm LinkedIn connection or InMail openers (2-4 sentences max).
+    const prompt = `You are an expert B2B copywriter specializing in ultra-short LinkedIn connection notes. 
+
+${messageTopic}
+
+Analyze the LinkedIn profile information provided below. Write exactly ONE hyper-personalized connection note targeting this person. 
+
+CRITICAL CONSTRAINTS:
+1. The note MUST be strictly under 300 characters (including spaces). 
+2. Absolutely no aggressive sales pitches or asking for a meeting. 
+3. Blend our ISO software efficiency or partner network into a "Zero-Ask" 
 
 Target person:
 - Name: ${profile.name}
 - Position: ${profile.position}
 
-Topics we want to relate to (from their company website):
-${keywords.map((k) => `- ${k}`).join("\n")}
-
 Their recent LinkedIn activity snippets:
-${postsBlock}
-
-Write one message the sender can paste. Reference something specific from their posts when possible; otherwise tie to their role and the keywords. Sound human, not salesy. Do not use placeholders like [Name]. Return only the message text, no quotes or labels.`;
+${postsBlock}`;
 
     try {
       const text = await completeUserPrompt({
@@ -356,7 +365,7 @@ Write one message the sender can paste. Reference something specific from their 
       );
     }
 
-    return `Hi ${profile.name}, I came across your profile and your recent posts resonated with what we're working on around ${keywords.slice(0, 2).join(" and ")}. Would love to connect.`;
+    return `Hi ${profile.name}, I came across your profile and your recent posts resonated with what we're working on around ${messageTopic}. Would love to connect.`;
   }
 
   private parseJsonObject(raw: string): Record<string, unknown> | null {

@@ -192,9 +192,15 @@ export const workflowConfigs = {
         required: false,
       },
       {
-        label: "Topic / keywords",
-        name: "topic",
-        type: "textarea",
+        label: "Selection Criteria",
+        name: "selectionCriteria",
+        type: "text",
+        required: true,
+      },
+      {
+        label: "Message Topic",
+        name: "messageTopic",
+        type: "text",
         required: true,
       },
     ],

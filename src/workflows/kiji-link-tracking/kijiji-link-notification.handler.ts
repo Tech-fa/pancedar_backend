@@ -76,42 +76,44 @@ export class KijijiLinkNotificationHandler {
   }
 
   async handleWebhook(body: TelegramWebhookUpdateDto): Promise<void> {
-    const message = extractMessage(body);
-    const username = message?.from?.username;
+   
+     const message = extractMessage(body);
+     console.log('chatId', message?.chat?.id);
+    // const username = message?.from?.username;
 
-    const workflows = await this.workflowService.findWorkflowsByPrimaryIdentifier(
-      username,
-      ["kijiji", "autotrader"],
-    );
-    for (const workflow of workflows) {
-      let workflowRun = await this.workflowService.findWorkgetWorkflowRunByContextWorkflowId(
-        {
-          workflowId: workflow.id,
-          context: {
-            chatId: message?.chat?.id,
-            username: username,
-            primaryIdentifier: username,
-          },
-        },
-      );
-      if (!workflowRun) {
-        workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
-          {
-            primaryIdentifier: username,
-            workflowName: workflow.workflowType,
-            connectorTypeId: workflow.linkedConnectors[0].connectorTypeId,
-            injectContext: (workflow: Workflow) => {
-              return {
-                chatId: message?.chat?.id,
-                username: username,
-              };
-            },
-            displayContext: {},
-          },
-        );
-      }
-      this.logger.log("workflowRun found or created ", workflowRun.id);
-    }
+    // const workflows = await this.workflowService.findWorkflowsByPrimaryIdentifier(
+    //   username,
+    //   ["kijiji", "autotrader"],
+    // );
+    // for (const workflow of workflows) {
+    //   let workflowRun = await this.workflowService.findWorkgetWorkflowRunByContextWorkflowId(
+    //     {
+    //       workflowId: workflow.id,
+    //       context: {
+    //         chatId: message?.chat?.id,
+    //         username: username,
+    //         primaryIdentifier: username,
+    //       },
+    //     },
+    //   );
+    //   if (!workflowRun) {
+    //     workflowRun = await this.workflowService.createWorkflowRunFromPrimaryIdentifier(
+    //       {
+    //         primaryIdentifier: username,
+    //         workflowName: workflow.workflowType,
+    //         connectorTypeId: workflow.linkedConnectors[0].connectorTypeId,
+    //         injectContext: (workflow: Workflow) => {
+    //           return {
+    //             chatId: message?.chat?.id,
+    //             username: username,
+    //           };
+    //         },
+    //         displayContext: {},
+    //       },
+    //     );
+    //   }
+    //   this.logger.log("workflowRun found or created ", workflowRun.id);
+    // }
   }
 
   private formatMessage(payload: NewKijijiItemPayload): string {

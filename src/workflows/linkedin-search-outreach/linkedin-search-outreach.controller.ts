@@ -16,6 +16,7 @@ import { workflowPermission } from '../../permissions/permissions';
 import { formatResponse } from '../../util/helper-util';
 import {
   TriggerLinkedInSearchOutreachDto,
+  UpdateLinkedInLeadMessagedDto,
 } from './dto';
 import { LinkedInSearchOutreachService } from './linkedin-search-outreach.service';
 
@@ -60,6 +61,26 @@ export class LinkedInSearchOutreachController {
       ),
       res,
       'LinkedIn leads fetched',
+    );
+  }
+
+  @Patch('leads/:leadId/messaged')
+  @hasPermission({ subject: workflowPermission.subject, actions: ['update'] })
+  async setLeadMessaged(
+    @Req() req,
+    @Param('leadId') leadId: string,
+    @Body() body: UpdateLinkedInLeadMessagedDto,
+    @Res() res: Response,
+  ) {
+    return formatResponse(
+      this.logger,
+      this.linkedInSearchOutreach.setLeadMessaged(
+        req.user,
+        leadId,
+        body.messaged,
+      ),
+      res,
+      'LinkedIn lead messaged flag updated',
     );
   }
 

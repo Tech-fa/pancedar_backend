@@ -3,9 +3,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
-import { InjectModel } from "@nestjs/mongoose";
 import { createHmac, timingSafeEqual } from "crypto";
-import { Model } from "mongoose";
 import { S3Service } from "../common/s3.service";
 import { Connector } from "../connector/connector.entity";
 import { Events } from "../queue/queue-constants";
@@ -13,11 +11,8 @@ import { QueuePublisher } from "../queue/queue.publisher";
 import { decrypt } from "../util/helper-util";
 import { workflowConfigs } from "../workflows/workflow-config";
 import { WorkflowService } from "../workflows/workflow.service";
-import {
-  KijijiLink,
-  KijijiLinkDocument,
-} from "../workflows/kiji-link-tracking/schemas/kijiji-link.schema";
 import { TeamService } from "./team.service";
+
 
 const TEAM_PROCESS_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
 const FACEBOOK_EMAIL_FIELD = "Facebook Email";
@@ -50,8 +45,6 @@ export class TeamProcessingService {
     private readonly workflowService: WorkflowService,
     private readonly queuePublisher: QueuePublisher,
     private readonly s3Service: S3Service,
-    @InjectModel(KijijiLink.name)
-    private readonly kijijiLinkModel: Model<KijijiLinkDocument>,
   ) {}
 
   async getLinkTrackingWorkflows(
@@ -108,52 +101,6 @@ export class TeamProcessingService {
     });
   }
 
-  async processLinks(
-    workflowId: string,
-    body: ProcessLinksDto,
-    headers: TeamProcessAuthHeaders,
-  ): Promise<void> {
-    const teamId = await this.assertValidTeamProcessRequest(headers);
-    const workflow = await this.workflowService.findByIdForTeam(
-      workflowId,
-      teamId,
-    );
-    const linkType = workflowConfigs[workflow.workflowType]?.scraping?.linkType;
-    this.assertWorkflowSupportsScraping(workflow.workflowType);
-
-    const collectedLinks = this.normalizeLinks(body.links);
-    if (collectedLinks.length === 0) {
-      return;
-    }
-
-    const knownLinks = await this.kijijiLinkModel
-      .find({ workflowId, link: { $in: collectedLinks } })
-      .select({ link: 1 })
-      .lean();
-    const knownLinkSet = new Set(knownLinks.map(({ link }) => link));
-    const insertedLinks = collectedLinks.filter(
-      (link) => !knownLinkSet.has(link),
-    );
-    const now = new Date();
-    if (insertedLinks.length > 0) {
-      await this.kijijiLinkModel.insertMany(
-        insertedLinks.map((link) => ({
-          workflowId,
-          link,
-          collectedAt: now,
-          lastSeenAt: now,
-          linkType,
-        })),
-        { ordered: false },
-      );
-      await this.queuePublisher.publish(Events.NEW_KIJIJI_ITEM, {
-        workflowId,
-        links: insertedLinks,
-        collectedAt: now.toISOString(),
-        linkType,
-      });
-    }
-  }
 
   private async assertValidTeamProcessRequest({
     teamId,

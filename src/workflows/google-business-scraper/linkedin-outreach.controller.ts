@@ -25,7 +25,8 @@ export class LinkedInOutreachController {
       this.logger,
       this.linkedInOutreach.runOutreach(
         body.companyLinkedInUrl,
-        body.keywords,
+        body.keywords.join(", "),
+        body.keywords.join(", "),
         body.credentials,
       ),
       res,

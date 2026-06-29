@@ -67,22 +67,6 @@ export class TeamProcessesController {
     );
   }
 
-  @Post("link-tracking/:workflowId/links")
-  @Public()
-  async processLinks(
-    @Param("workflowId") workflowId: string,
-    @Body() body: ProcessKijijiLinksDto,
-    @Headers("x-team-id") teamId: string,
-    @Headers("x-team-process-timestamp") timestamp: string,
-    @Headers("x-team-process-signature") signature: string,
-  ) {
-    return this.teamProcessingService.processLinks(workflowId, body, {
-      teamId,
-      timestamp,
-      signature,
-    });
-  }
-
   @Get("linkedin-search-outreach/:workflowRunId")
   @Public()
   async getLinkedInSearchOutreachRun(
@@ -91,14 +75,11 @@ export class TeamProcessesController {
     @Headers("x-team-process-timestamp") timestamp: string,
     @Headers("x-team-process-signature") signature: string,
   ) {
-    return this.linkedInSearchOutreachTeamProcessService.getRun(
-      workflowRunId,
-      {
-        teamId,
-        timestamp,
-        signature,
-      },
-    );
+    return this.linkedInSearchOutreachTeamProcessService.getRun(workflowRunId, {
+      teamId,
+      timestamp,
+      signature,
+    });
   }
 
   @Post("linkedin-search-outreach/:workflowRunId/claim")
@@ -158,8 +139,6 @@ export class TeamProcessesController {
       },
     );
   }
-
-
 
   @Post("linkedin-search-outreach/:workflowRunId/complete")
   @Public()

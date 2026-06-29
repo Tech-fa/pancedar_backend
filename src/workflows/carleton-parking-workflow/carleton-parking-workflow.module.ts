@@ -1,5 +1,4 @@
 import { Module, OnModuleInit } from "@nestjs/common";
-import { ResourceIngestionModule } from "src/resource-ingestion/resource-ingestion.module";
 import { TeamModule } from "src/team/team.module";
 import { TelegramModule } from "src/connector/telegram/telegram.module";
 import { registerWebhook } from "src/connector/telegram/telegram-util";
@@ -8,12 +7,13 @@ import { CarletonParkingReminderCron } from "./carleton-parking-reminder.cron";
 import { CarletonParkingWorkflowController } from "./carleton-parking-workflow.controller";
 import { CarletonParkingWebhookHandler } from "./carleton-parking-webhook.handler";
 import { CarletonParkingWorkflowService } from "./carleton-parking-workflow.service";
-
+import { RealBrowserService } from "src/resource-ingestion/real-browser";
+import { BrowserService } from "src/resource-ingestion/browser.service";
+  
 @Module({
   imports: [
     WorkflowModule,
     TelegramModule,
-    ResourceIngestionModule,
     TeamModule,
   ],
   controllers: [CarletonParkingWorkflowController],
@@ -21,6 +21,8 @@ import { CarletonParkingWorkflowService } from "./carleton-parking-workflow.serv
     CarletonParkingWebhookHandler,
     CarletonParkingWorkflowService,
     CarletonParkingReminderCron,
+    RealBrowserService,
+    BrowserService,
   ],
   exports: [CarletonParkingWorkflowService],
 })

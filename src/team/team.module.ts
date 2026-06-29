@@ -1,15 +1,11 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConnectorModule } from '../connector/connector.module';
 import { QueueModule } from '../queue/queue.module';
 import { WorkflowRun } from '../workflows/workflow-run.entity';
 import { Workflow } from '../workflows/workflow.entity';
 import { WorkflowService } from '../workflows/workflow.service';
-import {
-  KijijiLink,
-  KijijiLinkSchema,
-} from '../workflows/kiji-link-tracking/schemas/kijiji-link.schema';
+
 import { LinkedInLead } from '../workflows/linkedin-search-outreach/linkedin-lead.entity';
 import { Team, TeamConfig, TeamMember } from './team.entity';
 import { TeamController } from './team.controller';
@@ -30,9 +26,7 @@ import { CommonModule } from '../common/common.module';
       WorkflowRun,
       LinkedInLead,
     ]),
-    MongooseModule.forFeature([
-      { name: KijijiLink.name, schema: KijijiLinkSchema },
-    ]),
+  
     PermissionModule,
     ConnectorModule,
     QueueModule,

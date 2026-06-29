@@ -166,7 +166,8 @@ export class ProcessWebsiteQueueHandler {
 
           const outreach = await this.linkedInOutreach.runOutreach(
             rootEntity.linkedinUrl,
-            payload.keywords,
+            payload.keywords.join(", "),
+            payload.keywords.join(", "),
             linkedInCredentials,
           );
           if (

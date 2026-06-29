@@ -13,7 +13,6 @@ import type { Request, Response } from "express";
 import { hasPermission } from "../../authentication/permission.decorator";
 import { kijijiLinksPermission } from "../../permissions/permissions";
 import { formatResponse } from "../../util/helper-util";
-import { KijijiLinkService } from "./kijiji-link.service";
 import { TelegramWebhookUpdateDto } from "src/connector/telegram/dto";
 import { KijijiLinkNotificationHandler } from "./kijiji-link-notification.handler";
 import { Public } from "src/util/constants";
@@ -24,29 +23,8 @@ export class KijijiLinkTrackingController {
   private readonly logger = new Logger(KijijiLinkTrackingController.name);
 
   constructor(
-    private readonly kijijiLinkService: KijijiLinkService,
     private readonly kijijiLinkNotificationHandler: KijijiLinkNotificationHandler,
   ) {}
-
-  @Get(":workflowId/links")
-  @hasPermission({ subject: kijijiLinksPermission.subject, actions: ["read"] })
-  async findByWorkflowId(
-    @Param("workflowId") workflowId: string,
-    @Query("limit") limit: string,
-    @Res() res: Response,
-  ) {
-    const parsedLimit = Number(limit);
-
-    return formatResponse(
-      this.logger,
-      this.kijijiLinkService.findByWorkflowId( 
-        workflowId,
-        Number.isFinite(parsedLimit) ? parsedLimit : undefined,
-      ),
-      res,
-      `Kijiji links fetched for workflow ${workflowId}`,
-    );
-  }
 
   @Post("webhook")
   @Public()

@@ -51,6 +51,9 @@ export class LinkedInLead {
   @Column({ name: "skip_reason", type: "varchar", length: 255, nullable: true })
   skipReason: string | null;
 
+  @Column({ name: "messaged", type: "boolean", default: false })
+  messaged: boolean;
+
   @Column({ name: "created_at", type: "bigint" })
   createdAt: number;
 

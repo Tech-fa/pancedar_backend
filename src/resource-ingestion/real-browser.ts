@@ -16,7 +16,7 @@ const CARLETON_PARKING_URL = "https://carletonparking.com";
 export type LinkedInPersonProfile = {
   name: string;
   position: string;
-  profileUrl: string;
+  profileUrl?: string | null;
 };
 
 export type LinkedInCompanyProfile = {
@@ -758,11 +758,12 @@ export class RealBrowserService {
 
         const batch = await this.readLinkedInSearchPeopleListProfiles(page);
         for (const profile of batch) {
-          if (seenUrls.has(profile.profileUrl)) {
+          const profileUrl = profile.profileUrl?.trim();
+          if (!profileUrl || seenUrls.has(profileUrl)) {
             continue;
           }
-          seenUrls.add(profile.profileUrl);
-          allProfiles.push(profile);
+          seenUrls.add(profileUrl);
+          allProfiles.push({ ...profile, profileUrl });
         }
 
         this.logger.log(
@@ -1321,82 +1322,98 @@ export class RealBrowserService {
   ): Promise<LinkedInPersonProfile[]> {
     return await page.evaluate(() => {
       const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
-      const findScroller = (): HTMLElement | null => {
-        const headings = Array.from(document.querySelectorAll("h2"));
-        const h2 = headings.find((h) =>
-          /people you may know/i.test(h.textContent || ""),
-        );
-        if (!h2) {
+      const profileUrlPrefix = "https://www.linkedin.com/in/";
+
+      const normalizeProfileUrl = (href: string | null | undefined) => {
+        if (!href) {
           return null;
         }
-        let el: Element | null = h2.nextElementSibling;
-        while (el) {
-          if (el.classList.contains("scaffold-finite-scroll")) {
-            return el as HTMLElement;
-          }
-          el = el.nextElementSibling;
-        }
-        const parent = h2.parentElement;
-        if (parent) {
-          for (const child of Array.from(parent.children)) {
-            if (
-              child !== h2 &&
-              child.classList.contains("scaffold-finite-scroll")
-            ) {
-              return child as HTMLElement;
-            }
-          }
-        }
-        return null;
+        const profileUrl = href.split("?")[0].replace(/\/$/, "");
+        return profileUrl.startsWith(profileUrlPrefix) ? profileUrl : null;
       };
 
-      const scroller = findScroller();
-      if (!scroller) {
-        return [];
-      }
+      const readTextLines = (root: Element) =>
+        Array.from(root.querySelectorAll("span, div, p, a"))
+          .map((el) => normalize(el.textContent || ""))
+          .filter(
+            (text) =>
+              text.length > 0 &&
+              !/^(connect|follow|message|view profile)$/i.test(text),
+          );
 
-      const profiles: Array<{
-        name: string;
-        position: string;
-        profileUrl: string;
-      }> = [];
-      const seenUrls = new Set<string>();
-
-      scroller.querySelectorAll("li").forEach((li) => {
-        const info = li.querySelector(".org-people-profile-card__profile-info");
-        if (!info) {
-          return;
-        }
-        const link = li.querySelector(
-          'a[href*="/in/"]',
-        ) as HTMLAnchorElement | null;
-        if (!link?.href) {
-          return;
-        }
-        let profileUrl = link.href.split("?")[0];
-        if (!profileUrl.includes("/in/")) {
-          return;
-        }
-        if (seenUrls.has(profileUrl)) {
-          return;
-        }
-        seenUrls.add(profileUrl);
-
-        const lines = Array.from(
-          info.querySelectorAll("span, div, a, p, [class*='profile-card']"),
+      const readPosition = (item: Element, name: string) => {
+        const explicitPositions = Array.from(
+          item.querySelectorAll(
+            '.org-people-profile-card__profile-title, .artdeco-entity-lockup__subtitle, [class*="subtitle"]',
+          ),
         )
           .map((el) => normalize(el.textContent || ""))
-          .filter((t) => t.length > 0);
-        const uniqueLines = [...new Set(lines)];
-        const name = uniqueLines[0] || normalize(info.textContent || "");
-        const position = uniqueLines.slice(1).join(" · ");
-        if (!name) {
-          return;
+          .filter((text) => text.length > 0);
+        if (explicitPositions.length > 0) {
+          return [...new Set(explicitPositions)].join(" · ");
         }
-        profiles.push({ name, position, profileUrl });
-      });
 
-      return profiles;
+        const lines = readTextLines(item).filter(
+          (text) => text !== name && text !== "LinkedIn member",
+        );
+        return [...new Set(lines)].slice(0, 2).join(" · ");
+      };
+
+      const readPeopleListItems = () => {
+        const heading = Array.from(document.querySelectorAll("h2")).find((h) =>
+          /people you may know/i.test(h.textContent || ""),
+        );
+        const section = heading?.closest("section") || heading?.parentElement;
+        const scopedItems = section
+          ? Array.from(section.querySelectorAll("ul > li"))
+          : [];
+        return scopedItems.length > 0
+          ? scopedItems
+          : Array.from(document.querySelectorAll("ul > li"));
+      };
+
+      const byProfile = new Map<
+        string,
+        { name: string; position: string; profileUrl?: string | null }
+      >();
+
+      for (const item of readPeopleListItems()) {
+        const anchor = item.querySelector(
+          `a[href^="${profileUrlPrefix}"]`,
+        ) as HTMLAnchorElement | null;
+        const profileUrl = normalizeProfileUrl(anchor?.href);
+
+        const name =
+          normalize(anchor?.getAttribute("aria-label") || "") ||
+          normalize(anchor?.textContent || "") ||
+          "LinkedIn member";
+        const position = readPosition(item, name);
+        if (!profileUrl && !position) {
+          continue;
+        }
+
+        const profileKey = profileUrl ?? `${name}|${position}`;
+        const existing = byProfile.get(profileKey);
+        if (existing) {
+          if (!existing.name && name) {
+            existing.name = name;
+          } else if (name.length > existing.name.length) {
+            existing.name = name;
+          }
+          if (!existing.position && position) {
+            existing.position = position;
+          }
+          continue;
+        }
+
+        byProfile.set(profileKey, {
+          name,
+          position,
+          ...(profileUrl ? { profileUrl } : {}),
+        });
+      }
+
+      return Array.from(byProfile.values());
     });
   }
 

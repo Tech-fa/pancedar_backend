@@ -4,7 +4,7 @@ import {
   IsString,
   IsUUID,
   IsNumber,
-  MinLength,
+  IsBoolean,
 } from 'class-validator';
 
 export class TriggerLinkedInSearchOutreachDto {
@@ -22,5 +22,10 @@ export class TriggerLinkedInSearchOutreachDto {
   @IsOptional()
   @IsNumber()
   startPage?: number;
+}
+
+export class UpdateLinkedInLeadMessagedDto {
+  @IsBoolean()
+  messaged: boolean;
 }
 

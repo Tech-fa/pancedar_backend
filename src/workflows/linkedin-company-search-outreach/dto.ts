@@ -16,7 +16,11 @@ export class TriggerLinkedInCompanySearchOutreachDto {
 
   @IsString()
   @IsNotEmpty()
-  topic: string;
+  selectionCriteria: string;
+
+  @IsString()
+  @IsNotEmpty()
+  messageTopic: string;
 
   @IsOptional()
   @IsNumber()

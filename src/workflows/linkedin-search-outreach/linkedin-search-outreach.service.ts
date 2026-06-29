@@ -131,6 +131,28 @@ export class LinkedInSearchOutreachService {
     return qb.orderBy("lead.createdAt", "DESC").take(take).getMany();
   }
 
+  async setLeadMessaged(
+    user: UserRequest,
+    leadId: string,
+    messaged: boolean,
+  ): Promise<LinkedInLead> {
+    const lead = await this.leadRepo.findOne({
+      where: { id: leadId },
+      relations: ["workflowRun", "workflowRun.workflow"],
+    });
+    if (!lead?.workflowRun?.workflow) {
+      throw new NotFoundException("LinkedIn lead not found");
+    }
+    if (lead.workflowRun.workflow.teamId !== user.teamId) {
+      throw new ForbiddenException("Not allowed to update this lead");
+    }
+ 
+
+    lead.messaged = messaged;
+    lead.updatedAt = Date.now();
+    return this.leadRepo.save(lead);
+  }
+
   async combineLeadMessagesForWorkflowRun(
     user: UserRequest,
     workflowRunId: string,

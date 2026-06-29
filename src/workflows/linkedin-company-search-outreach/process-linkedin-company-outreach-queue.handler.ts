@@ -12,7 +12,8 @@ import { WorkflowService } from "../workflow.service";
 export interface ProcessLinkedInCompanyOutreachQueuePayload {
   companyLinkedInUrl: string;
   companyName?: string | null;
-  keywords: string[];
+  selectionCriteria: string;
+  messageTopic: string;
   searchUrl: string;
   workflowRunId: string;
   isLast?: boolean;
@@ -55,7 +56,7 @@ export class ProcessLinkedInCompanyOutreachQueueHandler {
       );
       return;
     }
-    if (!payload.keywords?.length) {
+    if (!payload.selectionCriteria?.trim()) {
       this.logger.warn(
         "PROCESS_LINKEDIN_COMPANY_OUTREACH skipped: keywords missing",
       );
@@ -90,7 +91,8 @@ export class ProcessLinkedInCompanyOutreachQueueHandler {
       try {
         const outreach = await this.linkedInOutreach.runOutreach(
           companyUrl,
-          payload.keywords,
+          payload.selectionCriteria,
+          payload.messageTopic,
           credentials,
         );
 

@@ -74,7 +74,8 @@ export class QueuePublisher {
   publishProcessLinkedInCompanyOutreach(data: {
     companyLinkedInUrl: string;
     companyName?: string | null;
-    keywords: string[];
+    selectionCriteria: string;
+    messageTopic: string;
     searchUrl: string;
     workflowRunId: string;
     isLast?: boolean;
