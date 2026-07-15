@@ -34,6 +34,8 @@ export enum Events {
   PROCESS_WEBSITE = 'process_website',
   /** Run LinkedIn outreach for one company from a company-search workflow run. */
   PROCESS_LINKEDIN_COMPANY_OUTREACH = 'process_linkedin_company_outreach',
+  /** Filter a LinkedIn content-search post by company HQ and save post link. */
+  PROCESS_LINKEDIN_CONTENT_POST = 'process_linkedin_content_post',
 }
 
 

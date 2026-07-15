@@ -30,6 +30,7 @@ import { GoogleBusinessScraperModule } from "./workflows/google-business-scraper
 import { SeoHelperModule } from "./workflows/seo-helper/seo-helper.module";
 import { LinkedInSearchOutreachModule } from "./workflows/linkedin-search-outreach/linkedin-search-outreach.module";
 import { LinkedInCompanySearchOutreachModule } from "./workflows/linkedin-company-search-outreach/linkedin-company-search-outreach.module";
+import { LinkedInContentSearchPostsModule } from "./workflows/linkedin-content-search-posts/linkedin-content-search-posts.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -66,6 +67,7 @@ import { LinkedInCompanySearchOutreachModule } from "./workflows/linkedin-compan
     SeoHelperModule,
     LinkedInSearchOutreachModule,
     LinkedInCompanySearchOutreachModule,
+    LinkedInContentSearchPostsModule,
   ],
   controllers: [AppController],
   providers: [

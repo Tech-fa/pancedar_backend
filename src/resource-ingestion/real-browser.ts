@@ -35,6 +35,35 @@ export type LinkedInCompanyScrapeResult = {
   skipReason?: string;
 };
 
+export type LinkedInContentSearchPostCandidate = {
+  companyUrl: string;
+  companyName: string;
+  postContent: string;
+  postKey: string;
+  /** Set when the post author is a person profile; resolved to companyUrl later. */
+  authorProfileUrl?: string;
+};
+
+export type LinkedInContentSearchPostsResult = {
+  posts: LinkedInContentSearchPostCandidate[];
+  searchUrl: string;
+  skipReason?: string;
+};
+
+export type LinkedInCompanyHeadquartersResult = {
+  location: string | null;
+  skipReason?: string;
+};
+
+export type LinkedInContentPostLinkResult = {
+  postLink: string | null;
+  skipReason?: string;
+};
+
+const MAX_LINKEDIN_CONTENT_SEARCH_POSTS = 100;
+const LINKEDIN_CONTENT_SEARCH_BASE_URL =
+  "https://www.linkedin.com/search/results/content/";
+
 /** Credentials from the LinkedIn connector (`connector-types.config.ts`). */
 export type LinkedInAuthCredentials = {
   username: string;
@@ -886,6 +915,290 @@ export class RealBrowserService {
     }
   }
 
+  buildLinkedInContentSearchUrl(searchWord: string): string {
+    const u = new URL(LINKEDIN_CONTENT_SEARCH_BASE_URL);
+    u.searchParams.set("keywords", searchWord.trim());
+    u.searchParams.set("origin", "GLOBAL_SEARCH_HEADER");
+    u.searchParams.set("sortBy", '["date_posted"]');
+    u.searchParams.set("datePosted", '["past-24h"]');
+    return u.href;
+  }
+
+  /**
+   * Opens LinkedIn content search (past 24h), scrolls results, and collects up to
+   * `maxPosts` posts from content cards (`role="listitem"`). Company-authored
+   * posts use the company link directly; person-authored posts resolve the
+   * employer from the profile Experience section before returning.
+   */
+  async collectLinkedInContentSearchPosts(
+    searchWord: string,
+    maxPosts = MAX_LINKEDIN_CONTENT_SEARCH_POSTS,
+    credentials?: LinkedInAuthCredentials,
+  ): Promise<LinkedInContentSearchPostsResult> {
+    const keyword = searchWord?.trim();
+    if (!keyword) {
+      return { posts: [], searchUrl: "", skipReason: "no_search_word" };
+    }
+
+    const searchUrl = this.buildLinkedInContentSearchUrl(keyword);
+    const postLimit = Math.min(Math.max(maxPosts, 1), MAX_LINKEDIN_CONTENT_SEARCH_POSTS);
+    let browser: Browser | null = null;
+
+    try {
+      const page = await this.openRealBrowserPage((b) => {
+        browser = b;
+      });
+
+      await page.goto(searchUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+      });
+      await this.humanPause(900, 1800);
+      this.logger.log(`[linkedin] visiting content search: ${searchUrl}`);
+
+      const sessionReady = await this.ensureLinkedInSession(
+        page,
+        credentials,
+        searchUrl,
+      );
+      if (!sessionReady) {
+        return { posts: [], searchUrl, skipReason: "linkedin_auth_required" };
+      }
+
+      await page
+        .waitForSelector(
+          'div[role="listitem"], a[href*="/company/"], a[href*="/in/"]',
+          { timeout: 25_000 },
+        )
+        .catch(() => undefined);
+      await this.humanPause(400, 900);
+
+      const allPosts: LinkedInContentSearchPostCandidate[] = [];
+      const seenKeys = new Set<string>();
+      let stagnantRounds = 0;
+
+      while (allPosts.length < postLimit && stagnantRounds < 8) {
+        const batch = await this.readLinkedInContentSearchPosts(page);
+        let added = 0;
+        for (const post of batch) {
+          if (seenKeys.has(post.postKey)) {
+            continue;
+          }
+          seenKeys.add(post.postKey);
+          allPosts.push(post);
+          added++;
+          if (allPosts.length >= postLimit) {
+            break;
+          }
+        }
+
+        this.logger.log(
+          `[linkedin] content search: +${added} post(s), total ${allPosts.length}/${postLimit}`,
+        );
+
+        if (added === 0) {
+          stagnantRounds++;
+        } else {
+          stagnantRounds = 0;
+        }
+
+        if (allPosts.length >= postLimit) {
+          break;
+        }
+
+        const scrolled = await this.scrollLinkedInContentSearchResults(page);
+        if (!scrolled) {
+          stagnantRounds++;
+        }
+        await this.humanPause(500, 1100);
+      }
+
+      const resolvedPosts = await this.resolveLinkedInContentSearchPostCompanies(
+        browser,
+        allPosts.slice(0, postLimit),
+        credentials,
+      );
+
+      return { posts: resolvedPosts, searchUrl };
+    } catch (error) {
+      this.logger.error(
+        `LinkedIn content search scrape failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      throw error;
+    } finally {
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Reads headquarters location from a company /about page (sibling of the h3
+   * parent for the "Headquarters" heading, e.g. "San Francisco, CA").
+   */
+  async getLinkedInCompanyHeadquarters(
+    companyUrl: string,
+    credentials?: LinkedInAuthCredentials,
+    browser?: Browser,
+  ): Promise<LinkedInCompanyHeadquartersResult> {
+    const normalized = this.normalizeLinkedInCompanyUrl(companyUrl);
+    if (!normalized) {
+      return { location: null, skipReason: "invalid_company_url" };
+    }
+
+    const aboutUrl = this.toLinkedInCompanyAboutUrl(normalized);
+    const ownsBrowser = !browser;
+    let localBrowser: Browser | null = browser ?? null;
+
+    try {
+      const page = browser
+        ? await browser.newPage()
+        : await this.openRealBrowserPage((b) => {
+            localBrowser = b;
+          });
+
+      try {
+        await page.goto(aboutUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+        });
+        await this.humanPause(800, 1600);
+
+        const sessionReady = await this.ensureLinkedInSession(
+          page,
+          credentials,
+          aboutUrl,
+        );
+        if (!sessionReady) {
+          return { location: null, skipReason: "linkedin_auth_required" };
+        }
+
+        await page
+          .waitForSelector("h3, dl", { timeout: 20_000 })
+          .catch(() => undefined);
+        await this.humanPause(300, 700);
+
+        const location = await this.readLinkedInCompanyHeadquartersLocation(page);
+        return { location };
+      } finally {
+        if (browser) {
+          await page.close().catch(() => undefined);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[linkedin] headquarters scrape failed for ${companyUrl}: ${
+          (error as Error).message
+        }`,
+      );
+      return { location: null, skipReason: (error as Error).message };
+    } finally {
+      if (ownsBrowser) {
+        await localBrowser?.close().catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * Returns true when headquarters text indicates US or Canada.
+   */
+  isUsOrCanadaHeadquarters(location: string | null | undefined): boolean {
+    const text = (location ?? "").trim();
+    if (!text) {
+      return false;
+    }
+    return this.parseNorthAmericaHeadquarters(text);
+  }
+
+  /**
+   * Finds a content-search post card by company URL + content snippet, opens the
+   * control menu, and copies the post permalink.
+   */
+  async extractLinkedInContentPostLink(
+    searchUrl: string,
+    companyUrl: string,
+    postContent: string,
+    credentials?: LinkedInAuthCredentials,
+    browser?: Browser,
+  ): Promise<LinkedInContentPostLinkResult> {
+    const trimmedSearch = searchUrl?.trim();
+    const normalizedCompany = this.normalizeLinkedInCompanyUrl(companyUrl);
+    if (!trimmedSearch || !normalizedCompany) {
+      return { postLink: null, skipReason: "missing_search_or_company_url" };
+    }
+
+    const ownsBrowser = !browser;
+    let localBrowser: Browser | null = browser ?? null;
+
+    try {
+      const page = browser
+        ? await browser.newPage()
+        : await this.openRealBrowserPage((b) => {
+            localBrowser = b;
+          });
+
+      try {
+        await page.goto(trimmedSearch, {
+          waitUntil: "domcontentloaded",
+          timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+        });
+        await this.humanPause(900, 1800);
+
+        const sessionReady = await this.ensureLinkedInSession(
+          page,
+          credentials,
+          trimmedSearch,
+        );
+        if (!sessionReady) {
+          return { postLink: null, skipReason: "linkedin_auth_required" };
+        }
+
+        await page
+          .waitForSelector('a[href*="/company/"]', { timeout: 25_000 })
+          .catch(() => undefined);
+
+        const snippet = postContent.trim().slice(0, 120);
+        let found = false;
+        for (let round = 0; round < 12 && !found; round++) {
+          found = await this.clickLinkedInContentPostControlMenu(
+            page,
+            normalizedCompany,
+            snippet,
+          );
+          if (found) {
+            break;
+          }
+          await this.scrollLinkedInContentSearchResults(page);
+          await this.humanPause(400, 900);
+        }
+
+        if (!found) {
+          return { postLink: null, skipReason: "post_not_found_on_search_page" };
+        }
+
+        await this.humanPause(300, 700);
+        const postLink = await this.copyLinkedInPostLinkFromMenu(page);
+        if (!postLink?.trim()) {
+          return { postLink: null, skipReason: "post_link_not_copied" };
+        }
+
+        return { postLink: postLink.trim() };
+      } finally {
+        if (browser) {
+          await page.close().catch(() => undefined);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[linkedin] post link extraction failed: ${(error as Error).message}`,
+      );
+      return { postLink: null, skipReason: (error as Error).message };
+    } finally {
+      if (ownsBrowser) {
+        await localBrowser?.close().catch(() => undefined);
+      }
+    }
+  }
+
   async openRealBrowserPage(
     onBrowser: (browser: Browser) => void,
   ): Promise<Page> {
@@ -935,6 +1248,36 @@ export class RealBrowserService {
       }
       const t = companyLinkedInUrl.trim().replace(/\/+$/, "");
       return /\/people$/i.test(t) ? t : `${t}/people`;
+    }
+  }
+
+  private toLinkedInCompanyAboutUrl(companyLinkedInUrl: string): string {
+    try {
+      const u = new URL(companyLinkedInUrl.trim());
+      const companyMatch = u.pathname.match(/^\/company\/([^/]+)/i);
+      if (companyMatch) {
+        u.pathname = `/company/${companyMatch[1]}/about`;
+        u.search = "";
+        u.hash = "";
+        return u.href;
+      }
+      let path = u.pathname.replace(/\/+$/, "");
+      if (!/\/about$/i.test(path)) {
+        path = `${path}/about`;
+      }
+      u.pathname = path;
+      u.search = "";
+      u.hash = "";
+      return u.href;
+    } catch {
+      const companyMatch = companyLinkedInUrl
+        .trim()
+        .match(/\/company\/([^/]+)/i);
+      if (companyMatch) {
+        return `https://www.linkedin.com/company/${companyMatch[1]}/about`;
+      }
+      const t = companyLinkedInUrl.trim().replace(/\/+$/, "");
+      return /\/about$/i.test(t) ? t : `${t}/about`;
     }
   }
 
@@ -991,6 +1334,579 @@ export class RealBrowserService {
       }
       return `https://www.linkedin.com/company/${match[1]}`;
     }
+  }
+
+  private normalizeLinkedInProfileUrl(rawUrl: string): string | null {
+    try {
+      const u = new URL(rawUrl.trim());
+      const match = u.pathname.match(/^\/in\/([^/]+)/i);
+      if (!match) {
+        return null;
+      }
+      u.pathname = `/in/${match[1]}`;
+      u.search = "";
+      u.hash = "";
+      return u.href.replace(/\/+$/, "");
+    } catch {
+      const match = rawUrl.trim().match(/\/in\/([^/?#]+)/i);
+      if (!match) {
+        return null;
+      }
+      return `https://www.linkedin.com/in/${match[1]}`;
+    }
+  }
+
+  private parseNorthAmericaHeadquarters(location: string): boolean {
+    const text = location.replace(/\s+/g, " ").trim();
+    const lower = text.toLowerCase();
+    if (/\bcanada\b/.test(lower)) {
+      return true;
+    }
+    if (/\bunited states\b/.test(lower) || /\b(u\.?\s?s\.?\s?a\.?)\b/.test(lower)) {
+      return true;
+    }
+    if (/(,\s*|\b)(us|usa)\s*$/i.test(text)) {
+      return true;
+    }
+    const canadianProvinces =
+      /\b(on|ontario|qc|quebec|bc|british columbia|ab|alberta|mb|manitoba|sk|saskatchewan|ns|nova scotia|nb|new brunswick|nl|newfoundland|pe|prince edward island|nt|northwest territories|nu|nunavut|yt|yukon)\b/i;
+    if (canadianProvinces.test(text) && !/\b(california|colorado|connecticut)\b/i.test(lower)) {
+      return true;
+    }
+    const usStateSuffix =
+      /,\s*(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia)\s*$/i;
+    return usStateSuffix.test(text);
+  }
+
+  private async readLinkedInContentSearchPosts(
+    page: Page,
+  ): Promise<LinkedInContentSearchPostCandidate[]> {
+    return await page.evaluate(() => {
+      const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+      const posts: Array<{
+        companyUrl: string;
+        companyName: string;
+        postContent: string;
+        postKey: string;
+        authorProfileUrl?: string;
+      }> = [];
+      const seenKeys = new Set<string>();
+
+      const normalizeCompanyUrl = (rawUrl: string): string | null => {
+        try {
+          const u = new URL(rawUrl.trim());
+          const match = u.pathname.match(/^\/company\/([^/]+)/i);
+          if (!match) {
+            return null;
+          }
+          u.pathname = `/company/${match[1]}`;
+          u.search = "";
+          u.hash = "";
+          return u.href.replace(/\/+$/, "");
+        } catch {
+          const match = rawUrl.trim().match(/\/company\/([^/?#]+)/i);
+          return match
+            ? `https://www.linkedin.com/company/${match[1]}`
+            : null;
+        }
+      };
+
+      const normalizeProfileUrl = (rawUrl: string): string | null => {
+        try {
+          const u = new URL(rawUrl.trim());
+          const match = u.pathname.match(/^\/in\/([^/]+)/i);
+          if (!match) {
+            return null;
+          }
+          u.pathname = `/in/${match[1]}`;
+          u.search = "";
+          u.hash = "";
+          return u.href.replace(/\/+$/, "");
+        } catch {
+          const match = rawUrl.trim().match(/\/in\/([^/?#]+)/i);
+          return match ? `https://www.linkedin.com/in/${match[1]}` : null;
+        }
+      };
+
+      const findAuthorAnchor = (
+        listItem: Element,
+      ): HTMLAnchorElement | null => {
+        const anchors = Array.from(
+          listItem.querySelectorAll('a[href*="/company/"], a[href*="/in/"]'),
+        ) as HTMLAnchorElement[];
+        for (const anchor of anchors) {
+          const href = anchor.href || "";
+          if (href.includes("/company/") || href.includes("/in/")) {
+            return anchor;
+          }
+        }
+        return null;
+      };
+
+      document.querySelectorAll('div[role="listitem"]').forEach((listItem) => {
+        const authorAnchor = findAuthorAnchor(listItem);
+        if (!authorAnchor?.href) {
+          return;
+        }
+
+        const postContent = normalize(listItem.textContent || "");
+        if (!postContent) {
+          return;
+        }
+
+        const authorName =
+          normalize(authorAnchor.getAttribute("aria-label") || "") ||
+          normalize(authorAnchor.textContent || "") ||
+          "LinkedIn member";
+
+        const companyUrl = normalizeCompanyUrl(authorAnchor.href);
+        if (companyUrl) {
+          const postKey = `${companyUrl}::${postContent.slice(0, 200)}`;
+          if (seenKeys.has(postKey)) {
+            return;
+          }
+          seenKeys.add(postKey);
+          posts.push({
+            companyUrl,
+            companyName: authorName,
+            postContent,
+            postKey,
+          });
+          return;
+        }
+
+        const profileUrl = normalizeProfileUrl(authorAnchor.href);
+        if (!profileUrl) {
+          return;
+        }
+
+        const postKey = `${profileUrl}::${postContent.slice(0, 200)}`;
+        if (seenKeys.has(postKey)) {
+          return;
+        }
+        seenKeys.add(postKey);
+        posts.push({
+          companyUrl: "",
+          companyName: authorName,
+          postContent,
+          postKey,
+          authorProfileUrl: profileUrl,
+        });
+      });
+
+      return posts;
+    });
+  }
+
+  private async resolveLinkedInContentSearchPostCompanies(
+    browser: Browser | null,
+    posts: LinkedInContentSearchPostCandidate[],
+    credentials?: LinkedInAuthCredentials,
+  ): Promise<LinkedInContentSearchPostCandidate[]> {
+    const resolved: LinkedInContentSearchPostCandidate[] = [];
+    const profilePage = browser ? await browser.newPage() : null;
+
+    try {
+      for (const post of posts) {
+        if (post.companyUrl) {
+          resolved.push(post);
+          continue;
+        }
+        if (!post.authorProfileUrl || !profilePage) {
+          continue;
+        }
+
+        const company = await this.resolveLinkedInCompanyFromProfileExperience(
+          profilePage,
+          post.authorProfileUrl,
+          credentials,
+        );
+        if (!company) {
+          this.logger.log(
+            `[linkedin] could not resolve company from profile ${post.authorProfileUrl}`,
+          );
+          continue;
+        }
+
+        resolved.push({
+          companyUrl: company.companyUrl,
+          companyName: company.companyName,
+          postContent: post.postContent,
+          postKey: `${company.companyUrl}::${post.postContent.slice(0, 200)}`,
+        });
+      }
+    } finally {
+      await profilePage?.close().catch(() => undefined);
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Opens a LinkedIn profile, scrolls to Experience, and returns the first
+   * company link in that section.
+   */
+  private async resolveLinkedInCompanyFromProfileExperience(
+    page: Page,
+    profileUrl: string,
+    credentials?: LinkedInAuthCredentials,
+  ): Promise<{ companyUrl: string; companyName: string } | null> {
+    const normalizedProfile = this.normalizeLinkedInProfileUrl(profileUrl);
+    if (!normalizedProfile) {
+      return null;
+    }
+
+    await page.goto(normalizedProfile, {
+      waitUntil: "domcontentloaded",
+      timeout: LINKEDIN_NAVIGATION_TIMEOUT_MS,
+    });
+    await this.humanPause(800, 1600);
+
+    const sessionReady = await this.ensureLinkedInSession(
+      page,
+      credentials,
+      normalizedProfile,
+    );
+    if (!sessionReady) {
+      return null;
+    }
+
+    await this.scrollToLinkedInProfileExperienceSection(page);
+    await this.humanPause(400, 900);
+
+    return await this.readLinkedInExperienceCompanyLink(page);
+  }
+
+  private async scrollToLinkedInProfileExperienceSection(
+    page: Page,
+  ): Promise<boolean> {
+    const initiallyVisible = await page.evaluate(() => {
+      const heading = Array.from(document.querySelectorAll("h2")).find((h2) =>
+        /experience/i.test(h2.textContent || ""),
+      );
+      if (!heading) {
+        return false;
+      }
+      heading.scrollIntoView({ block: "center", inline: "nearest" });
+      return true;
+    });
+    if (initiallyVisible) {
+      return true;
+    }
+
+    for (let round = 0; round < 10; round++) {
+      await page.evaluate(() => {
+        window.scrollBy(0, Math.floor(window.innerHeight * 0.65));
+      });
+      await this.humanPause(350, 700);
+
+      const found = await page.evaluate(() => {
+        const heading = Array.from(document.querySelectorAll("h2")).find((h2) =>
+          /experience/i.test(h2.textContent || ""),
+        );
+        if (!heading) {
+          return false;
+        }
+        heading.scrollIntoView({ block: "center", inline: "nearest" });
+        return true;
+      });
+      if (found) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private async readLinkedInExperienceCompanyLink(
+    page: Page,
+  ): Promise<{ companyUrl: string; companyName: string } | null> {
+    return await page.evaluate(() => {
+      const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+
+      const normalizeCompanyUrl = (rawUrl: string): string | null => {
+        try {
+          const u = new URL(rawUrl.trim());
+          const match = u.pathname.match(/^\/company\/([^/]+)/i);
+          if (!match) {
+            return null;
+          }
+          u.pathname = `/company/${match[1]}`;
+          u.search = "";
+          u.hash = "";
+          return u.href.replace(/\/+$/, "");
+        } catch {
+          const match = rawUrl.trim().match(/\/company\/([^/?#]+)/i);
+          return match
+            ? `https://www.linkedin.com/company/${match[1]}`
+            : null;
+        }
+      };
+
+      const heading = Array.from(document.querySelectorAll("h2")).find((h2) =>
+        /experience/i.test(h2.textContent || ""),
+      );
+      if (!heading) {
+        return null;
+      }
+
+      const section =
+        heading.closest("section") ??
+        heading.parentElement?.closest("section") ??
+        heading.parentElement;
+      if (!section) {
+        return null;
+      }
+
+      const anchor = section.querySelector(
+        'a[href*="/company/"]',
+      ) as HTMLAnchorElement | null;
+      if (!anchor?.href) {
+        return null;
+      }
+
+      const companyUrl = normalizeCompanyUrl(anchor.href);
+      if (!companyUrl) {
+        return null;
+      }
+
+      const companyName =
+        normalize(anchor.getAttribute("aria-label") || "") ||
+        normalize(anchor.textContent || "") ||
+        "LinkedIn company";
+
+      return { companyUrl, companyName };
+    });
+  }
+
+  private async scrollLinkedInContentSearchResults(page: Page): Promise<boolean> {
+    const before = await this.readLinkedInContentSearchScrollMetrics(page);
+
+    const didScroll = await page.evaluate(() => {
+      const workspace = document.querySelector("main#workspace");
+      if (!(workspace instanceof HTMLElement)) {
+        return false;
+      }
+
+      const maxScroll = workspace.scrollHeight - workspace.clientHeight;
+      const beforeTop = workspace.scrollTop;
+      const step = Math.max(
+        200,
+        Math.min(
+          Math.floor(workspace.clientHeight * 0.75),
+          Math.max(0, maxScroll - beforeTop),
+        ),
+      );
+      workspace.scrollTop = Math.min(maxScroll, beforeTop + step);
+      workspace.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+      if (workspace.scrollTop > beforeTop + 1) {
+        return true;
+      }
+
+      const r = workspace.getBoundingClientRect();
+      workspace.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: r.left + r.width / 2,
+          clientY: r.top + r.height * 0.65,
+          deltaY: Math.max(280, Math.floor(r.height * 0.55)),
+          deltaMode: 0,
+        }),
+      );
+      return workspace.scrollTop > beforeTop + 1;
+    });
+
+    if (!didScroll) {
+      const wheelTarget = await page.evaluate(() => {
+        const workspace = document.querySelector("main#workspace");
+        if (!(workspace instanceof HTMLElement)) {
+          return null;
+        }
+        const r = workspace.getBoundingClientRect();
+        return {
+          x: r.left + r.width / 2,
+          y: r.top + r.height * 0.65,
+        };
+      });
+      if (wheelTarget) {
+        await page.mouse.move(wheelTarget.x, wheelTarget.y);
+        await page.mouse.wheel({ deltaY: 720 });
+      }
+    }
+
+    await this.humanPause(450, 900);
+    await page
+      .waitForNetworkIdle({ idleTime: 350, timeout: 2800 })
+      .catch(() => undefined);
+
+    const after = await this.readLinkedInContentSearchScrollMetrics(page);
+    return (
+      after.scrollHeight > before.scrollHeight ||
+      after.scrollTop > before.scrollTop + 1
+    );
+  }
+
+  private async readLinkedInContentSearchScrollMetrics(
+    page: Page,
+  ): Promise<{ scrollHeight: number; scrollTop: number }> {
+    return await page.evaluate(() => {
+      const workspace = document.querySelector("main#workspace");
+      if (workspace instanceof HTMLElement) {
+        return {
+          scrollHeight: workspace.scrollHeight,
+          scrollTop: workspace.scrollTop,
+        };
+      }
+      return { scrollHeight: 0, scrollTop: 0 };
+    });
+  }
+
+  private async readLinkedInCompanyHeadquartersLocation(
+    page: Page,
+  ): Promise<string | null> {
+    return await page.evaluate(() => {
+      const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+      const headings = Array.from(document.querySelectorAll("h3"));
+      for (const h3 of headings) {
+        if (!/headquarters/i.test(h3.textContent || "")) {
+          continue;
+        }
+        const locationEl = h3.parentElement?.nextElementSibling;
+        if (locationEl) {
+          const text = normalize(locationEl.textContent || "");
+          if (text) {
+            return text;
+          }
+        }
+      }
+      return null;
+    });
+  }
+
+  private async clickLinkedInContentPostControlMenu(
+    page: Page,
+    companyUrl: string,
+    contentSnippet: string,
+  ): Promise<boolean> {
+    const companySlug = companyUrl.match(/\/company\/([^/?#]+)/i)?.[1] ?? "";
+    const snippet = contentSnippet.trim().slice(0, 80);
+
+    return await page.evaluate(
+      (slug, snippetText) => {
+        const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+
+        const openMenuInContainer = (container: HTMLElement | null): boolean => {
+          for (let depth = 0; depth < 10 && container; depth++) {
+            const menuBtn = container.querySelector<HTMLElement>(
+              'button[aria-label^="Open control menu for"]',
+            );
+            if (menuBtn) {
+              menuBtn.scrollIntoView({ block: "center", inline: "nearest" });
+              menuBtn.click();
+              return true;
+            }
+            container = container.parentElement;
+          }
+          return false;
+        };
+
+        const anchors = Array.from(
+          document.querySelectorAll(
+            'a[href*="/company/"], a[href*="linkedin.com/company"]',
+          ),
+        ) as HTMLAnchorElement[];
+
+        for (const anchor of anchors) {
+          if (slug && !anchor.href.includes(`/company/${slug}`)) {
+            continue;
+          }
+          const listItem = anchor.closest('div[role="listitem"]');
+          const container = listItem ?? anchor.parentElement?.parentElement;
+          const text = normalize(container?.textContent || "");
+          if (snippetText && !text.includes(snippetText.slice(0, 40))) {
+            continue;
+          }
+
+          if (openMenuInContainer(container as HTMLElement | null)) {
+            return true;
+          }
+        }
+
+        const listItems = Array.from(
+          document.querySelectorAll('div[role="listitem"]'),
+        );
+        for (const listItem of listItems) {
+          const text = normalize(listItem.textContent || "");
+          if (snippetText && !text.includes(snippetText.slice(0, 40))) {
+            continue;
+          }
+          if (openMenuInContainer(listItem as HTMLElement)) {
+            return true;
+          }
+        }
+
+        return false;
+      },
+      companySlug,
+      snippet,
+    );
+  }
+
+  private async copyLinkedInPostLinkFromMenu(page: Page): Promise<string | null> {
+    await page
+      .waitForSelector('[role="menu"], [role="menuitem"]', { timeout: 8_000 })
+      .catch(() => undefined);
+
+    const clicked = await page.evaluate(() => {
+      const items = Array.from(
+        document.querySelectorAll('[role="menuitem"], li, span, div'),
+      ) as HTMLElement[];
+      for (const item of items) {
+        const text = (item.textContent || "").replace(/\s+/g, " ").trim();
+        if (/copy link to post/i.test(text)) {
+          item.click();
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (!clicked) {
+      return null;
+    }
+
+    await this.humanPause(400, 900);
+
+    try {
+      const context = page.browser().defaultBrowserContext();
+      await context.overridePermissions(page.url(), ["clipboard-read"]);
+    } catch {
+      // clipboard permission may be unavailable in some environments
+    }
+
+    const fromClipboard = await page
+      .evaluate(async () => {
+        try {
+          return await navigator.clipboard.readText();
+        } catch {
+          return "";
+        }
+      })
+      .catch(() => "");
+
+    if (fromClipboard?.includes("linkedin.com")) {
+      return fromClipboard.trim();
+    }
+
+    return await page.evaluate(() => {
+      const links = Array.from(
+        document.querySelectorAll('a[href*="linkedin.com/feed/update"]'),
+      ) as HTMLAnchorElement[];
+      return links[0]?.href?.split("?")[0] ?? null;
+    });
   }
 
   private async readLinkedInSearchCompanyListProfiles(

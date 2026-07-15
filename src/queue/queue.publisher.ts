@@ -82,4 +82,17 @@ export class QueuePublisher {
   }) {
     return this.publish(Events.PROCESS_LINKEDIN_COMPANY_OUTREACH, data);
   }
+
+  publishProcessLinkedInContentPost(data: {
+    companyLinkedInUrl: string;
+    companyName?: string | null;
+    postContent: string;
+    postKey: string;
+    searchUrl: string;
+    searchWord: string;
+    workflowRunId: string;
+    isLast?: boolean;
+  }) {
+    return this.publish(Events.PROCESS_LINKEDIN_CONTENT_POST, data);
+  }
 }

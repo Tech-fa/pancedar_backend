@@ -19,6 +19,7 @@ export enum WorkflowType {
   SEO_HELPER = "seo-helper",
   LINKEDIN_SEARCH_OUTREACH = "linkedin-search-outreach",
   LINKEDIN_COMPANY_SEARCH_OUTREACH = "linkedin-company-search-outreach",
+  LINKEDIN_CONTENT_SEARCH_POSTS = "linkedin-content-search-posts",
 }
 
 export const workflowConfigs = {
@@ -200,6 +201,23 @@ export const workflowConfigs = {
       {
         label: "Message Topic",
         name: "messageTopic",
+        type: "text",
+        required: true,
+      },
+    ],
+  },
+  "linkedin-content-search-posts": {
+    description:
+      "Search LinkedIn content posts from the past 24 hours by keyword, read company posts, filter to US/Canada headquarters, and save post permalinks.",
+    steps: ["linkedin-content-search", "filter-company-posts"],
+    connectorsNeeded: ["LinkedIn"],
+    allowMultiple: true,
+    entitiesNeeded: ["linkedin_content_posts"],
+    actionUrl: "linkedin-content-search-posts/run",
+    actionFields: [
+      {
+        label: "Search keyword",
+        name: "searchWord",
         type: "text",
         required: true,
       },
@@ -490,6 +508,14 @@ export const workflowStepConfigs = {
   "collect-company-outreach": {
     description:
       "Visits each company /people page, picks a decision-maker, reads their posts, and drafts outreach.",
+  },
+  "linkedin-content-search": {
+    description:
+      "LinkedIn content search (past 24h) for a keyword; collects up to 100 company posts.",
+  },
+  "filter-company-posts": {
+    description:
+      "Checks each company headquarters on /about, keeps US/Canada only, and saves post permalinks.",
   },
 };
 
